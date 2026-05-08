@@ -6,7 +6,9 @@
 <title>שירת הלויים — ניהול שעות הוראה</title>
 <style>
 :root{--font-sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;--color-background-primary:#fff;--color-background-secondary:#f5f5f4;--color-background-tertiary:#f0efed;--color-text-primary:#1a1a18;--color-text-secondary:#6b6b68;--color-text-tertiary:#9b9b97;--color-border-tertiary:rgba(0,0,0,0.12);--color-border-secondary:rgba(0,0,0,0.22);--border-radius-md:8px;--border-radius-lg:12px}
-@media(prefers-color-scheme:dark){:root{--color-background-primary:#1c1c1a;--color-background-secondary:#252523;--color-background-tertiary:#2a2a27;--color-text-primary:#f0efed;--color-text-secondary:#a8a8a4;--color-text-tertiary:#6b6b68;--color-border-tertiary:rgba(255,255,255,0.1);--color-border-secondary:rgba(255,255,255,0.18)}}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--color-background-primary:#1c1c1a;--color-background-secondary:#252523;--color-background-tertiary:#2a2a27;--color-text-primary:#f0efed;--color-text-secondary:#a8a8a4;--color-text-tertiary:#6b6b68;--color-border-tertiary:rgba(255,255,255,0.1);--color-border-secondary:rgba(255,255,255,0.18)}}
+:root[data-theme="dark"]{--color-background-primary:#1c1c1a;--color-background-secondary:#252523;--color-background-tertiary:#2a2a27;--color-text-primary:#f0efed;--color-text-secondary:#a8a8a4;--color-text-tertiary:#6b6b68;--color-border-tertiary:rgba(255,255,255,0.1);--color-border-secondary:rgba(255,255,255,0.18)}
+:root[data-theme="light"]{--color-background-primary:#fff;--color-background-secondary:#f5f5f4;--color-background-tertiary:#f0efed;--color-text-primary:#1a1a18;--color-text-secondary:#6b6b68;--color-text-tertiary:#9b9b97;--color-border-tertiary:rgba(0,0,0,0.12);--color-border-secondary:rgba(0,0,0,0.22)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:var(--font-sans);background:var(--color-background-tertiary);color:var(--color-text-primary);min-height:100vh}
 .hidden{display:none!important}
@@ -161,6 +163,7 @@ tr.drag-over td{border-top:2px solid #10717E}
       <button class="nb" onclick="nav('settings',this)">הגדרות</button>
     </div>
     <span class="role-tag" id="role-tag"></span>
+    <button id="theme-toggle" onclick="toggleTheme()" title="בהיר / כהה" style="background:none;border:0.5px solid var(--color-border-secondary);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:14px;color:var(--color-text-secondary);line-height:1">☀</button>
     <button class="exit-btn" onclick="logout()">יציאה ←</button>
   </div>
 
@@ -211,7 +214,7 @@ tr.drag-over td{border-top:2px solid #10717E}
 
   <div class="pg" id="pg-private">
     <div style="display:flex;gap:7px;margin-bottom:10px;align-items:center;flex-wrap:wrap">
-      <select id="priv-month" style="width:135px" onchange="renderPrivate()"><option value="2026-04" selected>אפריל 2026</option><option value="2026-03">מרץ 2026</option></select>
+      <select id="priv-month" style="width:135px" onchange="renderPrivate()"></select>
       <select id="priv-lect-f" style="width:145px" onchange="renderPrivate()"><option value="all">כל המרצים</option></select>
       <div style="flex:1"></div><button class="btn btn-p btn-sm" onclick="showPrivForm()">+ הוסף שיעור</button>
     </div>
@@ -1912,22 +1915,52 @@ function saveMiscPayment(){const name=document.getElementById('mf-name').value.t
 function updateMiscStatus(id,val){const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status=val;const sl={'approved':'אושר','done':'שולם','invoice':'שולם+חשבונית','pending':'ממתין'}[val]||val;logAction('עדכון תשלום נוסף',sl+' — '+(p.name||''));saveDB();renderPayments();}}
 function delMisc(id){if(!confirm('למחוק?'))return;DB.miscPayments=(DB.miscPayments||[]).filter(x=>x.id!==id);saveDB();renderPayments();}
 
-function renderPendingReceipts(months){
+function renderPendingReceipts(){
   const el=document.getElementById('d-pending-receipts');if(!el)return;
   const cnt=document.getElementById('d-receipts-count');
-  // Lecturer payments: status=done (paid, awaiting receipt)
-  const waitLects=[];
-  const lids=new Set(DB.days.filter(d=>months.some(m=>d.date.startsWith(m))&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));
-  months.forEach(m=>{lids.forEach(lid=>{const st=(DB.payStatuses||{})[m+'_'+lid]||'pending';if(st==='done'){const l=getLect(lid);if(l&&l.type!=='employee')waitLects.push({name:l.name,month:m});}});});
-  // Misc: status=done
-  const waitMisc=(DB.miscPayments||[]).filter(p=>months.some(m=>p.month===m)&&p.status==='done');
-  const total=waitLects.length+waitMisc.length;
-  if(cnt)cnt.textContent=total?total+' ממתינים':'';
-  if(!total){el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary)">הכל תקין ✓</div>';return;}
-  el.innerHTML=[
-    ...waitLects.slice(0,5).map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary)"><span>${x.name}</span><span style="font-size:10px;background:#FAEEDA;color:#633806;padding:1px 5px;border-radius:4px">ממתין לקבלה</span></div>`),
-    ...waitMisc.slice(0,5).map(p=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary)"><span>${p.name}</span><span style="font-size:10px;background:#FAEEDA;color:#633806;padding:1px 5px;border-radius:4px">ממתין לחשבונית</span></div>`),
-  ].join('');
+  const items=[];
+  // סריקת כל payStatuses ללא סינון חודשים
+  Object.entries(DB.payStatuses||{}).forEach(([k,v])=>{
+    if(v!=='done')return;
+    const dashIdx=k.indexOf('-');if(dashIdx<0)return;
+    const m=k.slice(0,7); // YYYY-MM
+    if(k.slice(8,12)==='adm_'){
+      const sid=k.slice(12);
+      const s=(DB.adminStaff||[]).find(x=>x.id===sid);
+      if(s&&s.type!=='employee'){
+        const admR=(getAdminMonthlyRows(m)||[]).find(x=>x.id===sid);
+        const tot=admR?Math.round(admR.total+(admR.type==='freelance_vat'?Math.round(admR.total*0.18):0)):0;
+        items.push({label:s.name,month:m,amount:tot,type:'pay',key:k});
+      }
+    } else {
+      const lid=k.slice(8);
+      const l=getLect(lid);
+      if(l&&l.type!=='employee'){
+        const c=calcLect(lid,m);
+        items.push({label:l.name,month:m,amount:c?Math.round(c.total):0,type:'pay',key:k});
+      }
+    }
+  });
+  // miscPayments בסטטוס done
+  (DB.miscPayments||[]).filter(p=>p.status==='done').forEach(p=>{
+    items.push({label:p.name,month:p.month,amount:Math.round(p.amount||0),type:'misc',id:p.id});
+  });
+  items.sort((a,b)=>b.month.localeCompare(a.month));
+  if(cnt)cnt.textContent=items.length?items.length+' ממתינים':'';
+  if(!items.length){el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary)">הכל תקין ✓</div>';return;}
+  el.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">'+
+    items.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border:0.5px solid var(--color-border-tertiary);border-radius:5px;gap:6px">
+      <div style="min-width:0"><div style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.label}</div>
+      <div style="font-size:10px;color:var(--color-text-tertiary)">${x.month.replace('-','/')}${x.amount?' · ₪'+x.amount.toLocaleString('he-IL'):''}</div></div>
+      <button onclick="markReceiptReceived('${x.type}','${x.id||''}','${x.key||''}')" style="flex-shrink:0;font-size:10px;padding:2px 6px;border:0.5px solid #C0DD97;border-radius:4px;background:#EAF3DE;color:#3B6D11;cursor:pointer;white-space:nowrap">✓ התקבלה</button>
+    </div>`).join('')+
+  '</div>';
+}
+function markReceiptReceived(type,id,key){
+  if(type==='misc'){const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status='invoice';saveDB();}}
+  else if(type==='pay'&&key){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]='received';saveDB();}
+  renderPendingReceipts();
+  renderDashStats(getSelMonths());
 }
 function quotaDragStart(e,track,i){_quotaDragTrack=track;_quotaDragIdx=i;e.dataTransfer.effectAllowed='move';}
 function quotaDrop(e,track,i){
@@ -2265,7 +2298,7 @@ function renderDashStats(months){
   let adminCost=0;months.forEach(m=>{getAdminMonthlyRows(m).forEach(r=>{const pKey=m+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(['approved','bank','done','received'].includes(st)){const vat=r.type==='freelance_vat'?Math.round(r.total*0.18):0;adminCost+=r.total+vat;}});});
   const totalCost=Math.round(cost)+Math.round(miscCost)+Math.round(adminCost);
   // ממתינים לחשבונית — עצמאיים בסטטוס done (מרצים + תשלומים נוספים + צוות מנהלי)
-  let waitInvoice=0;months.forEach(m=>{Object.entries(DB.payStatuses||{}).filter(([k,v])=>k.startsWith(m+'_')&&v==='done').forEach(([k])=>{if(k.startsWith(m+'_adm_')){const staffId=k.slice(m.length+5);const s=(DB.adminStaff||[]).find(x=>x.id===staffId);if(s&&s.type!=='employee')waitInvoice++;}else{const lid=k.slice(m.length+1);const l=getLect(lid);if(l&&l.type!=='employee')waitInvoice++;}});(DB.miscPayments||[]).filter(p=>p.month===m&&p.status==='done').forEach(()=>waitInvoice++);});
+  let waitInvoice=0;Object.entries(DB.payStatuses||{}).forEach(([k,v])=>{if(v!=='done')return;if(k.slice(8,12)==='adm_'){const s=(DB.adminStaff||[]).find(x=>x.id===k.slice(12));if(s&&s.type!=='employee')waitInvoice++;}else{const l=getLect(k.slice(8));if(l&&l.type!=='employee')waitInvoice++;}});(DB.miscPayments||[]).filter(p=>p.status==='done').forEach(()=>waitInvoice++);
   el.innerHTML=`<div class="stat-card"><div class="stat-lbl">ימי לימוד מאושרים</div><div class="stat-val">${approved.length}<span style="font-size:12px;color:var(--color-text-secondary)">/${days.length}</span></div></div><div class="stat-card"><div class="stat-lbl">ש"ה הוראה</div><div class="stat-val">${hrs.toFixed(1)}</div></div><div class="stat-card"><div class="stat-lbl">עלות הוראה</div><div class="stat-val" style="font-size:16px">₪${Math.round(cost).toLocaleString('he-IL')}</div></div><div class="stat-card"><div class="stat-lbl">תשלומים נוספים</div><div class="stat-val" style="font-size:16px">₪${Math.round(miscCost).toLocaleString('he-IL')}</div></div><div class="stat-card"><div class="stat-lbl">צוות מנהלי</div><div class="stat-val" style="font-size:16px">₪${Math.round(adminCost).toLocaleString('he-IL')}</div></div><div class="stat-card" style="border-color:#10717E"><div class="stat-lbl" style="font-weight:600">סה"כ עלות חודשית</div><div class="stat-val" style="font-size:16px;color:#10717E">₪${totalCost.toLocaleString('he-IL')}</div></div><div class="stat-card" style="border-color:${warn?'#F7C1C1':'var(--color-border-secondary)'}"><div class="stat-lbl">ממתינים לאישור</div><div class="stat-val" style="color:${warn?'#854F0B':'#10717E'}">${pending.length} ימים<span style="font-size:11px"> + ${pendingPriv.length} כלי</span></div></div>${waitInvoice>0?`<div class="stat-card" style="border-color:#E8A838"><div class="stat-lbl" style="color:#854F0B">ממתינים לחשבונית</div><div class="stat-val" style="color:#854F0B">${waitInvoice}</div></div>`:''}`;
 }
 
@@ -2531,7 +2564,7 @@ function renderDash(){
   renderDashApprovals(months);
   renderDashChart();
   renderDashMisc(months);
-  renderPendingReceipts(months);
+  renderPendingReceipts();
   renderDashQuotas(months);
   renderActivityLog();
   renderDashMessages();
@@ -2571,7 +2604,10 @@ function saveEntryDay(){const dateVal=document.getElementById('e-date').value,tr
   const yb={};groups.forEach(g=>{if(!yb[g.name])yb[g.name]=0;g.rows.forEach(r=>{yb[g.name]+=(r.payHrs||0);});});
   const obj={id:'day_'+Date.now(),date:dateVal,dow,track,enteredBy:currentRole,groups,totalPay:+tp.toFixed(2),quota:totalQ2,overQuota:totalQ2?+Math.max(0,tp-totalQ2).toFixed(2):0,yearBreakdown:yb,dayApproval:'pending',payApproval:'pending',savedAt:new Date().toISOString()};const ex=DB.days.findIndex(x=>x.date===dateVal&&x.track===track);if(ex>=0){DB.days[ex]=obj;}else{logAction('רישום יום לימודים',dateVal+' — '+({m:'גברים',w:'נשים'}[track]||track));DB.days.push(obj);}DB.days.sort((a,b)=>b.date.localeCompare(a.date));saveDB();alert(obj.overQuota>0?`יום נשמר — חריגה ${fmt(obj.overQuota)} ש"ה`:'יום נשמר ✓');document.getElementById('groups-container').innerHTML='';updateEntryDash();}
 function buildPrivAlerts(month,cid){const alerts=DB.students.map(s=>{const used=Math.round(studentTotalUsed(s.id)*100)/100;const quota=studentEffectiveQuota(s);const pct=used/quota*100;if(pct>=100)return`<div class="al-alert">${s.name} — ${fmt(used)}/${quota} ש"ה (חריגה!)</div>`;if(pct>=90)return`<div class="al-w">${s.name} — ${Math.round(pct)}% מהמכסה</div>`;return'';}).join('');document.getElementById(cid).innerHTML=alerts;}
-function renderPrivate(){const month=document.getElementById('priv-month').value;const lfEl=document.getElementById('priv-lect-f');const lids=[...new Set(DB.privateLessons.map(pl=>pl.lectId))];const cur=lfEl.value;lfEl.innerHTML='<option value="all">כל המרצים</option>'+lids.map(lid=>{const l=getLect(lid);return`<option value="${lid}"${lid===cur?' selected':''}>${l?l.name:lid}</option>`;}).join('');buildPrivAlerts(month,'priv-alerts');const tf=lfEl.value;const lessons=DB.privateLessons.filter(pl=>pl.date.startsWith(month)&&(tf==='all'||pl.lectId===tf)).sort((a,b)=>a.date.localeCompare(b.date));const byLect={};DB.privateLessons.filter(pl=>pl.date.startsWith(month)).forEach(pl=>{if(!byLect[pl.lectId])byLect[pl.lectId]={n:0,hrs:0};byLect[pl.lectId].n++;byLect[pl.lectId].hrs+=toAcad(pl.duration);});document.getElementById('priv-by-lect').innerHTML=Object.entries(byLect).map(([lid,v])=>{const l=getLect(lid);const tag=l&&l.track==='w'?'<span class="tag-w">נ</span>':'<span class="tag-m">ג</span>';return`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px"><span>${l?l.name:lid} ${tag}</span><span style="color:#10717E;font-weight:500">${v.n} שיעורים | ${fmt(v.hrs)} ש"ה</span></div>`;}).join('')||'<div style="font-size:12px;color:var(--color-text-secondary)">אין נתונים</div>';document.getElementById('priv-by-student').innerHTML=DB.students.map((s,i)=>{const used=Math.round(studentTotalUsed(s.id)*100)/100;const quota=studentEffectiveQuota(s);const pct=Math.min(100,Math.round(used/quota*100));const over=used>quota;const near=pct>=90&&!over;const color=over?'#E24B4A':near?'#EF9F27':'#10717E';return`<div class="qbar"><div style="width:78px;flex-shrink:0"><div style="font-size:11px;font-weight:500">${s.name}</div><div style="font-size:10px;color:var(--color-text-secondary)">${s.instrument}</div></div><div class="qbar-track"><div class="qbar-fill" style="width:${pct}%;background:${color}"></div></div><input type="number" value="${quota}" step="0.5" style="width:42px;font-size:10px;padding:1px 3px;margin-right:4px" onchange="overrideStudentQuota(${i},this.value)"><span style="font-size:10px;color:${color}">${fmt(used)} שימוש</span></div>`;}).join('');const hasPending=lessons.some(pl=>pl.privApproval==='pending');const bulkBar=document.getElementById('priv-bulk-bar');if(bulkBar)bulkBar.style.display=hasPending?'flex':'none';document.getElementById('priv-rows').innerHTML=lessons.map(pl=>{const l=getLect(pl.lectId);const s=getStudent(pl.studentId);const rate=l?l.ratePriv:0;const acad=toAcad(pl.duration);const base=Math.round(rate*acad);const vat=l&&hasVat(l.type)?Math.round(base*VAT):0;const isPending=pl.privApproval==='pending';const st=isPending?`<button class="btn btn-ok btn-sm" style="font-size:10px" onclick="approvePrivSingle('${pl.id}')">✓ אשר</button>`:`<span class="badge b-ok">אושר</span><button class="btn btn-sm" style="font-size:10px" onclick="unapprovePriv('${pl.id}')">× בטל</button>`;return`<tr><td style="padding:3px 4px">${isPending?`<input type="checkbox" class="priv-cb" data-id="${pl.id}" onchange="updatePrivBulkCount()" style="width:14px;height:14px;accent-color:#10717E">`:''}</td><td style="padding:5px 8px;font-size:12px;font-weight:500">${l?l.name:'—'}</td><td style="font-size:12px">${s?s.name:'—'}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s?s.instrument:'—'}</td><td style="font-size:12px">${pl.date}</td><td style="font-size:12px">${pl.time||'—'}</td><td style="font-size:12px">${pl.duration}ד׳</td><td style="font-size:12px;color:#10717E;font-weight:500">${fmt(acad)}</td><td style="font-size:12px">₪${rate}</td><td style="font-size:12px;font-weight:500">${fmtM(base+vat)}</td><td>${st}</td><td><button class="btn-del" onclick="delPriv('${pl.id}')">×</button></td></tr>`;}).join('');const th=lessons.reduce((s,pl)=>s+toAcad(pl.duration),0);const tp=lessons.reduce((s,pl)=>{const l=getLect(pl.lectId);const r=l?l.ratePriv:0;const b=Math.round(r*toAcad(pl.duration));const v=l&&hasVat(l.type)?Math.round(b*VAT):0;return s+b+v;},0);document.getElementById('priv-total').textContent=`${lessons.length} שיעורים | ${fmt(th)} ש"ה | ${fmtM(tp)} כולל מע״מ`;}
+function renderPrivate(){
+  // בניית dropdown חודשים דינמית
+  (()=>{const sel=document.getElementById('priv-month');if(!sel)return;const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];const now=new Date();const curM=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');const mSet=new Set([...(DB.privateLessons||[]).map(pl=>pl.date.slice(0,7)),curM].filter(Boolean));const prev=sel.value;const sorted=[...mSet].sort((a,b)=>b.localeCompare(a));sel.innerHTML=sorted.map(v=>{const d=new Date(v+'-01');return`<option value="${v}"${v===prev?' selected':''}>${HEB[d.getMonth()]} ${d.getFullYear()}</option>`;}).join('');if(!sel.value||!sorted.includes(sel.value))sel.value=curM;})();
+  const month=document.getElementById('priv-month').value;const lfEl=document.getElementById('priv-lect-f');const lids=[...new Set(DB.privateLessons.map(pl=>pl.lectId))];const cur=lfEl.value;lfEl.innerHTML='<option value="all">כל המרצים</option>'+lids.map(lid=>{const l=getLect(lid);return`<option value="${lid}"${lid===cur?' selected':''}>${l?l.name:lid}</option>`;}).join('');buildPrivAlerts(month,'priv-alerts');const tf=lfEl.value;const lessons=DB.privateLessons.filter(pl=>pl.date.startsWith(month)&&(tf==='all'||pl.lectId===tf)).sort((a,b)=>a.date.localeCompare(b.date));const byLect={};DB.privateLessons.filter(pl=>pl.date.startsWith(month)).forEach(pl=>{if(!byLect[pl.lectId])byLect[pl.lectId]={n:0,hrs:0};byLect[pl.lectId].n++;byLect[pl.lectId].hrs+=toAcad(pl.duration);});document.getElementById('priv-by-lect').innerHTML=Object.entries(byLect).map(([lid,v])=>{const l=getLect(lid);const tag=l&&l.track==='w'?'<span class="tag-w">נ</span>':'<span class="tag-m">ג</span>';return`<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px"><span>${l?l.name:lid} ${tag}</span><span style="color:#10717E;font-weight:500">${v.n} שיעורים | ${fmt(v.hrs)} ש"ה</span></div>`;}).join('')||'<div style="font-size:12px;color:var(--color-text-secondary)">אין נתונים</div>';document.getElementById('priv-by-student').innerHTML=DB.students.map((s,i)=>{const used=Math.round(studentTotalUsed(s.id)*100)/100;const quota=studentEffectiveQuota(s);const pct=Math.min(100,Math.round(used/quota*100));const over=used>quota;const near=pct>=90&&!over;const color=over?'#E24B4A':near?'#EF9F27':'#10717E';return`<div class="qbar"><div style="width:78px;flex-shrink:0"><div style="font-size:11px;font-weight:500">${s.name}</div><div style="font-size:10px;color:var(--color-text-secondary)">${s.instrument}</div></div><div class="qbar-track"><div class="qbar-fill" style="width:${pct}%;background:${color}"></div></div><input type="number" value="${quota}" step="0.5" style="width:42px;font-size:10px;padding:1px 3px;margin-right:4px" onchange="overrideStudentQuota(${i},this.value)"><span style="font-size:10px;color:${color}">${fmt(used)} שימוש</span></div>`;}).join('');const hasPending=lessons.some(pl=>pl.privApproval==='pending');const bulkBar=document.getElementById('priv-bulk-bar');if(bulkBar)bulkBar.style.display=hasPending?'flex':'none';document.getElementById('priv-rows').innerHTML=lessons.map(pl=>{const l=getLect(pl.lectId);const s=getStudent(pl.studentId);const rate=l?l.ratePriv:0;const acad=toAcad(pl.duration);const base=Math.round(rate*acad);const vat=l&&hasVat(l.type)?Math.round(base*VAT):0;const isPending=pl.privApproval==='pending';const st=isPending?`<button class="btn btn-ok btn-sm" style="font-size:10px" onclick="approvePrivSingle('${pl.id}')">✓ אשר</button>`:`<span class="badge b-ok">אושר</span><button class="btn btn-sm" style="font-size:10px" onclick="unapprovePriv('${pl.id}')">× בטל</button>`;return`<tr><td style="padding:3px 4px">${isPending?`<input type="checkbox" class="priv-cb" data-id="${pl.id}" onchange="updatePrivBulkCount()" style="width:14px;height:14px;accent-color:#10717E">`:''}</td><td style="padding:5px 8px;font-size:12px;font-weight:500">${l?l.name:'—'}</td><td style="font-size:12px">${s?s.name:'—'}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s?s.instrument:'—'}</td><td style="font-size:12px">${pl.date}</td><td style="font-size:12px">${pl.time||'—'}</td><td style="font-size:12px">${pl.duration}ד׳</td><td style="font-size:12px;color:#10717E;font-weight:500">${fmt(acad)}</td><td style="font-size:12px">₪${rate}</td><td style="font-size:12px;font-weight:500">${fmtM(base+vat)}</td><td>${st}</td><td><button class="btn-del" onclick="delPriv('${pl.id}')">×</button></td></tr>`;}).join('');const th=lessons.reduce((s,pl)=>s+toAcad(pl.duration),0);const tp=lessons.reduce((s,pl)=>{const l=getLect(pl.lectId);const r=l?l.ratePriv:0;const b=Math.round(r*toAcad(pl.duration));const v=l&&hasVat(l.type)?Math.round(b*VAT):0;return s+b+v;},0);document.getElementById('priv-total').textContent=`${lessons.length} שיעורים | ${fmt(th)} ש"ה | ${fmtM(tp)} כולל מע״מ`;}
 function overrideStudentQuota(idx,val){DB.students[idx].usedOverride=parseFloat(val)||null;saveDB();renderPrivate();}
 function showPrivForm(){const form=document.getElementById('priv-form');if(form.style.display==='block'){form.style.display='none';return;}const allLects=DB.lecturers.filter(l=>l.ratePriv>0);const lOpts=allLects.map(l=>`<option value="${l.id}">${l.name}</option>`).join('');const sOpts=DB.students.map(s=>`<option value="${s.id}">${s.name} (${s.instrument})</option>`).join('');const tOpts=TIMES.map(t=>`<option value="${t}">${t}</option>`).join('');form.innerHTML=`<div class="card"><div style="display:flex;gap:7px;flex-wrap:wrap;align-items:flex-end"><div class="fg" style="width:130px"><label>מרצה</label><select id="pf-l" style="font-size:12px" onchange="onPrivLectChange(this)">${lOpts}<option value="__new__">+ מרצה חדש...</option></select></div><div id="new-lect-inline" style="display:none;gap:4px;flex-wrap:wrap"><input id="pf-nl-name" placeholder="שם" style="width:100px;font-size:12px"><input id="pf-nl-rate" type="number" placeholder="תעריף" style="width:65px;font-size:12px"><select id="pf-nl-type" style="font-size:12px"><option value="freelance_exempt">פטור</option><option value="freelance_vat">מורשה</option></select><button class="btn btn-sm btn-g" onclick="addLectFromPrivForm()">+ הוסף</button></div><div class="fg" style="width:140px"><label>תלמיד</label><select id="pf-s" style="font-size:12px">${sOpts}</select></div><div class="fg" style="width:118px"><label>תאריך</label><input type="date" id="pf-d" value="${new Date().toISOString().split('T')[0]}"></div><div class="fg" style="width:80px"><label>שעה</label><select id="pf-t" style="font-size:12px">${tOpts}</select></div><div class="fg" style="width:75px"><label>משך (דק׳)</label><input type="number" id="pf-dur" value="45" min="15" step="15"></div><button class="btn btn-p btn-sm" onclick="savePrivLesson()">שמור</button><button class="btn btn-sm" onclick="document.getElementById('priv-form').style.display='none'">ביטול</button></div></div>`;form.style.display='block';}
 function savePrivLesson(){const lid=document.getElementById('pf-l').value;const sid=document.getElementById('pf-s').value;const date=document.getElementById('pf-d').value;const time=document.getElementById('pf-t').value;const dur=parseInt(document.getElementById('pf-dur').value)||45;if(!lid||!sid||!date)return;const s=getStudent(sid);if(s){const used=studentTotalUsed(sid);const quota=studentEffectiveQuota(s);const newHrs=toAcad(dur);const pct=(used+newHrs)/quota*100;if(pct>100){if(!confirm(`${s.name} יחרוג ממכסה. להמשיך?`))return;}else if(pct>=90){if(!confirm(`${s.name} יגיע ל-${Math.round(pct)}% מהמכסה. להמשיך?`))return;}}
@@ -2674,7 +2710,7 @@ function renderMonthly(){const month=document.getElementById('m-month')?.value;i
   container.innerHTML='';
   let _seenFreelancer=false;
   lids.forEach(lid=>{
-    const calc=calcLect(lid,month);if(!calc||calc.total===0)return;
+    const calc=calcLect(lid,month);const _ov=(DB.payOverrides||{})[month+'_'+lid]||{};if(!calc||(calc.total===0&&!Object.keys(_ov).length))return;
     const l=calc.l;
     // Employee/freelancer separator
     if(!_seenFreelancer&&l.type!=='employee'){
@@ -2710,7 +2746,7 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
     const rowEl=document.createElement('div');
     rowEl.innerHTML=rowHtml;
     const lprDiv=rowEl.querySelector('.lect-pay-row');
-    if(lprDiv){const strip=document.createElement('label');strip.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:11px;color:var(--color-text-tertiary);cursor:pointer;border-bottom:0.5px solid var(--color-border-tertiary)';strip.innerHTML=`<input type="checkbox" class="mpay-cb" data-key="${key}" onchange="updateMonthlySel()" style="width:14px;height:14px;accent-color:#10717E"> בחר`;lprDiv.prepend(strip);}
+    if(lprDiv){const av=lprDiv.querySelector('div[style*="border-radius:50%"]');if(av){const cb=document.createElement('input');cb.type='checkbox';cb.className='mpay-cb';cb.dataset.key=key;cb.style.display='none';av.dataset.origBg=av.style.background;av.dataset.origColor=av.style.color;av.dataset.origText=av.textContent;av.style.cursor='pointer';av.title='לחץ לבחירה';av.addEventListener('click',e=>{e.stopPropagation();cb.checked=!cb.checked;_setPayAvatar(av,cb.checked);updateMonthlySel();});lprDiv.appendChild(cb);}}
     container.appendChild(rowEl);
   });
   // Append misc payments
@@ -2722,7 +2758,9 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
     pmts2.forEach(p=>{
       const div=document.createElement('div');
       const brd=p.status==='done'||p.status==='invoice'?'border-color:#3B6D11;background:rgba(234,243,222,0.35)':p.status==='approved'?'border-color:#C0DD97':'border-color:#F7C1C1';
-      div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:5px;${brd}"><div><span style="font-size:12px;font-weight:500">${p.name}</span>${p.approver?' | '+p.approver:''}</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:500;color:#10717E">${fmtM(p.amount)}</span><select style="font-size:11px;padding:2px 4px;width:130px" onchange="updateMiscStatus('${p.id}',this.value)"><option value="pending"${p.status==='pending'?' selected':''}>ממתין</option><option value="approved"${p.status==='approved'?' selected':''}>אושר</option><option value="done"${p.status==='done'?' selected':''}>שולם</option><option value="invoice"${p.status==='invoice'?' selected':''}>שולם + חשבונית</option></select></div></div>`;
+      div.innerHTML=`<div class="misc-pay-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:5px;${brd}"><div style="display:flex;align-items:center;gap:10px"><div data-orig-bg="var(--color-background-secondary)" data-orig-color="var(--color-text-secondary)" data-orig-text="${p.name.charAt(0)}" style="width:34px;height:34px;border-radius:50%;background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:var(--color-text-secondary);cursor:pointer;flex-shrink:0" title="לחץ לבחירה">${p.name.charAt(0)}</div><div><span style="font-size:12px;font-weight:500">${p.name}</span>${p.approver?'<span style="font-size:11px;color:var(--color-text-tertiary)"> | '+p.approver+'</span>':''}</div></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:500;color:#10717E">${fmtM(p.amount)}</span><select style="font-size:11px;padding:2px 4px;width:130px" onchange="updateMiscStatus('${p.id}',this.value)"><option value="pending"${p.status==='pending'?' selected':''}>ממתין</option><option value="approved"${p.status==='approved'?' selected':''}>אושר</option><option value="done"${p.status==='done'?' selected':''}>שולם</option><option value="invoice"${p.status==='invoice'?' selected':''}>שולם + חשבונית</option></select></div></div>`;
+      const miscRow=div.querySelector('.misc-pay-row');
+      if(miscRow){const av=miscRow.querySelector('[data-orig-text]');if(av){const cb=document.createElement('input');cb.type='checkbox';cb.className='mpay-cb';cb.dataset.key='misc_'+p.id;cb.style.display='none';av.addEventListener('click',e=>{e.stopPropagation();cb.checked=!cb.checked;_setPayAvatar(av,cb.checked);updateMonthlySel();});miscRow.appendChild(cb);}}
       container.appendChild(div);
     });
   }
@@ -2769,16 +2807,17 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
 <div style="font-size:11px;color:var(--color-text-secondary)">${r.bank||'אין פרטי בנק'}</div>
 </div></div></div>`;
       const admLprDiv=rowEl.querySelector('.lect-pay-row');
-      if(admLprDiv){const strip=document.createElement('label');strip.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:11px;color:var(--color-text-tertiary);cursor:pointer;border-bottom:0.5px solid var(--color-border-tertiary)';strip.innerHTML=`<input type="checkbox" class="mpay-cb" data-key="${pKey}" onchange="updateMonthlySel()" style="width:14px;height:14px;accent-color:#10717E"> בחר`;admLprDiv.prepend(strip);}
+      if(admLprDiv){const av=admLprDiv.querySelector('div[style*="border-radius:50%"]');if(av){const cb=document.createElement('input');cb.type='checkbox';cb.className='mpay-cb';cb.dataset.key=pKey;cb.style.display='none';av.dataset.origBg=av.style.background;av.dataset.origColor=av.style.color;av.dataset.origText=av.textContent;av.style.cursor='pointer';av.title='לחץ לבחירה';av.addEventListener('click',e=>{e.stopPropagation();cb.checked=!cb.checked;_setPayAvatar(av,cb.checked);updateMonthlySel();});admLprDiv.appendChild(cb);}}
       container.appendChild(rowEl);
     });
   }
 
 }
 function toggleLPR(id){const b=document.getElementById(id);if(b)b.classList.toggle('open');}
-function toggleAllMonthlyPay(checked){document.querySelectorAll('.mpay-cb').forEach(cb=>cb.checked=checked);updateMonthlySel();}
+function _setPayAvatar(av,checked){if(checked){av.style.background='#10717E';av.style.color='#fff';av.textContent='✓';}else{av.style.background=av.dataset.origBg||'';av.style.color=av.dataset.origColor||'';av.textContent=av.dataset.origText||'';}}
+function toggleAllMonthlyPay(checked){document.querySelectorAll('.mpay-cb').forEach(cb=>{cb.checked=checked;const row=cb.closest('.lect-pay-row')||cb.closest('.misc-pay-row');const av=row?row.querySelector('[data-orig-text]'):null;if(av)_setPayAvatar(av,checked);});updateMonthlySel();}
 function updateMonthlySel(){const n=document.querySelectorAll('.mpay-cb:checked').length;const el=document.getElementById('m-bulk-count');if(el)el.textContent=n?n+' נבחרו':'';}
-function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};keys.forEach(k=>{DB.payStatuses[k]=st;});saveDB();renderMonthly();}
+function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};keys.forEach(k=>{if(k.startsWith('misc_')){const p=(DB.miscPayments||[]).find(x=>x.id===k.slice(5));if(p)p.status=st;}else DB.payStatuses[k]=st;});saveDB();renderMonthly();}
 function overrideF(key,field,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[key])DB.payOverrides[key]={};DB.payOverrides[key][field]=parseFloat(val)||0;saveDB();renderMonthly();}
 function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','bank':'הוזן לבנק','pending':'ממתין'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();}
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='bank'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
@@ -2789,9 +2828,27 @@ function addStudent(){const n=document.getElementById('ns-n').value.trim();if(!n
 
 
 // ── Boot ──
+function toggleTheme(){
+  const cur=document.documentElement.getAttribute('data-theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  const next=cur==='dark'?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  localStorage.setItem('shirat_theme',next);
+  _updateThemeBtn();
+}
+function _updateThemeBtn(){
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark'||(!document.documentElement.getAttribute('data-theme')&&window.matchMedia('(prefers-color-scheme:dark)').matches);
+  const btn=document.getElementById('theme-toggle');
+  if(btn)btn.textContent=isDark?'☀':'☾';
+}
+function _initTheme(){
+  const saved=localStorage.getItem('shirat_theme');
+  if(saved)document.documentElement.setAttribute('data-theme',saved);
+  _updateThemeBtn();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  _initTheme();
   document.getElementById('fb-loader').style.display = 'flex';
-  
 });
 
 </script>
