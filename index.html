@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -252,6 +252,20 @@ tr.drag-over td{border-top:2px solid #10717E}
       
       <button class="btn btn-sm" style="font-size:11px" onclick="exportPaymentsExcel()">⬇ ייצוא לבנק</button> <button class="btn btn-sm" id="lock-month-btn" style="font-size:11px" onclick="lockMonth(document.getElementById('m-month').value)">🔒 נעל חודש</button> <button class="btn btn-sm" style="font-size:11px" onclick="exportEmployeesExcel()">⬇ שכירים להנה"ח</button></div>
     <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:9px;display:flex;gap:14px"><span><span style="display:inline-block;width:10px;height:10px;background:rgba(234,243,222,0.9);border:0.5px solid #C0DD97;border-radius:2px;margin-left:4px"></span>אושר</span><span><span style="display:inline-block;width:10px;height:10px;background:rgba(252,235,235,0.9);border:0.5px solid #F7C1C1;border-radius:2px;margin-left:4px"></span>לבדיקה</span></div>
+    <div class="bulk-bar" style="margin-bottom:8px">
+      <input type="checkbox" id="cb-all-monthly" onchange="toggleAllMonthlyPay(this.checked)" style="width:16px;height:16px;accent-color:#10717E">
+      <label for="cb-all-monthly" style="font-size:12px;cursor:pointer">בחר הכל</label>
+      <select id="m-bulk-status" style="font-size:12px;padding:2px 6px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:var(--color-background-primary);color:var(--color-text-primary)">
+        <option value="">— שנה סטטוס —</option>
+        <option value="pending">ממתין</option>
+        <option value="approved">אושר לתשלום</option>
+        <option value="bank">הוזן לבנק</option>
+        <option value="done">שולם</option>
+        <option value="received">שולם + קבלה</option>
+      </select>
+      <button class="btn btn-ok btn-sm" onclick="applyMonthlyBulkStatus()">החל לנבחרים</button>
+      <div id="m-bulk-count" style="font-size:11px;color:var(--color-text-secondary)"></div>
+    </div>
     <div id="m-rows"></div>
   
       <div id="monthly-admin-card" style="display:none"></div>
@@ -415,7 +429,7 @@ tr.drag-over td{border-top:2px solid #10717E}
         <div style="overflow-x:auto"><table style="min-width:500px;table-layout:fixed">
           <thead><tr>
             <th style="width:140px">שם</th>
-            <th style="width:80px">תעריף שעתי</th>
+            <th id="admin-rate-th" style="width:80px">תעריף שעתי</th>
             <th style="width:80px">סוג</th>
             <th>בנק / סניף / חשבון</th>
             <th style="width:30px"></th>
@@ -424,7 +438,7 @@ tr.drag-over td{border-top:2px solid #10717E}
         </table></div>
         <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;align-items:flex-end">
           <div class="fg" style="flex:1;min-width:120px"><label>שם עובד</label><input id="na-name" placeholder="שם"></div>
-          <div class="fg" style="width:72px"><label>תעריף שעתי</label><input id="na-rate" type="number" placeholder="50"></div>
+          <div id="na-rate-fg" class="fg" style="width:72px"><label>תעריף שעתי</label><input id="na-rate" type="number" placeholder="50"></div>
           <div class="fg" style="width:80px"><label>סוג</label><select id="na-type"><option value="employee">שכיר</option><option value="freelance_vat">מורשה</option><option value="freelance_exempt">פטור</option></select></div>
           <div class="fg" style="width:55px"><label>בנק</label><input id="na-bank" placeholder="בנק"></div>
           <div class="fg" style="width:48px"><label>סניף</label><input id="na-branch" placeholder="סניף"></div>
@@ -512,15 +526,20 @@ function exportEmployeesExcel(month){
 // ── Admin Staff Management ──────────────────────────────────
 function renderAdminStaff(){
   const el=document.getElementById('admin-staff-rows');if(!el)return;
+  const showRate=currentRole!=='office';
+  const rateTh=document.getElementById('admin-rate-th');
+  const rateFg=document.getElementById('na-rate-fg');
+  if(rateTh)rateTh.style.display=showRate?'':'none';
+  if(rateFg)rateFg.style.display=showRate?'':'none';
   const staff=DB.adminStaff||[];
   if(!staff.length){
-    el.innerHTML='<tr><td colspan="5" style="padding:8px;color:var(--color-text-tertiary);font-size:12px">אין עובדים מנהליים. לחץ "+ הוסף עובד"</td></tr>';
+    el.innerHTML='<tr><td colspan="'+(showRate?5:4)+'" style="padding:8px;color:var(--color-text-tertiary);font-size:12px">אין עובדים מנהליים. לחץ "+ הוסף עובד"</td></tr>';
     return;
   }
   el.innerHTML=staff.map((s,i)=>`
     <tr style="border-bottom:0.5px solid var(--color-border-tertiary)">
       <td style="padding:4px 8px"><input value="${s.name||''}" style="font-size:12px;width:100%;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'name',this.value)"></td>
-      <td style="padding:4px 8px"><input type="number" value="${s.rate||0}" style="font-size:12px;width:70px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;text-align:center;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'rate',this.value)"></td>
+      ${showRate?`<td style="padding:4px 8px"><input type="number" value="${s.rate||0}" style="font-size:12px;width:70px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;text-align:center;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'rate',this.value)"></td>`:''}
       <td style="padding:4px 8px"><select onchange="updateAdminField(${i},'type',this.value)" style="font-size:12px;padding:2px 5px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:var(--color-background-primary);color:var(--color-text-primary)">
         <option value="employee" ${s.type==='employee'?'selected':''}>שכיר</option>
         <option value="freelance_vat" ${s.type==='freelance_vat'?'selected':''}>מורשה</option>
@@ -854,29 +873,29 @@ function renderAdminHours(){
   var hrs=(DB.adminHours||{})[key]||{};
   var parts=month.split('-');var yy=parseInt(parts[0]);var mm=parseInt(parts[1]);
   var daysInMonth=new Date(yy,mm,0).getDate();
-  var DNAME=['\u05e8\u05d0\u05e9\u05d5\u05df','\u05e9\u05e0\u05d9','\u05e9\u05dc\u05d9\u05e9\u05d9','\u05e8\u05d1\u05d9\u05e2\u05d9','\u05d7\u05de\u05d9\u05e9\u05d9','\u05e9\u05d9\u05e9\u05d9','\u05e9\u05d1\u05ea'];
+  var DNAME=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
 
   var aStatus=(DB.adminHoursStatus||{})[key]||'pending';
   var approved=aStatus==='approved';
-  el.innerHTML='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:5px 10px;border-radius:6px;background:var(--color-background-secondary)"><span style="font-size:11px;color:var(--color-text-secondary)">סטטוס: <strong style="color:'+(approved?'#10717E':'#854F0B')+'">'+(approved?'✓ מאושר':'ממתין לאישור')+'</strong></span>'+(approved?'<button onclick="revokeAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:5px;background:none;cursor:pointer;color:#A32D2D">ביטול אישור</button>':'<button onclick="approveAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:11px;padding:3px 10px;border:none;border-radius:5px;background:#10717E;cursor:pointer;color:#fff">אשר דיווח</button>')+'</div>';
+  el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:5px 10px;border-radius:6px;background:var(--color-background-secondary)"><span style="font-size:11px;color:var(--color-text-secondary)">סטטוס: <strong style="color:${approved?'#10717E':'#854F0B'}">${approved?'✓ מאושר':'ממתין לאישור'}</strong></span>${approved?`<button onclick="revokeAdminHours('${s.id}','${month}')" style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:5px;background:none;cursor:pointer;color:#A32D2D">ביטול אישור</button>`:`<button onclick="approveAdminHours('${s.id}','${month}')" style="font-size:11px;padding:3px 10px;border:none;border-radius:5px;background:#10717E;cursor:pointer;color:#fff">אשר דיווח</button>`}</div>`;
 
   var overrides=(hrs._overrides)||{};
-  var tbl=document.createElement('table');tbl.style.cssText='width:100%;border-collapse:collapse;font-size:11px';
+  var tbl=document.createElement('table');
+  tbl.style.cssText='width:100%;max-width:540px;border-collapse:collapse;font-size:11px';
+
   var thead=tbl.createTHead();var hrow=thead.insertRow();
-  ['יום','יום בשבוע','משמרת 1 התחלה','משמרת 1 סיום','משמרת 2 התחלה','משמרת 2 סיום','שעות','שעות ידנית'].forEach(function(t){
+  [['יום','90px'],['שעות עבודה',''],['שעות','56px'],['ידנית','60px']].forEach(([t,w])=>{
     var th=document.createElement('th');
-    th.style.cssText='padding:4px 6px;text-align:right;border-bottom:0.5px solid var(--color-border-secondary);white-space:nowrap;font-size:11px;background:var(--color-background-secondary)';
+    th.style.cssText=`padding:4px 6px;text-align:right;border-bottom:0.5px solid var(--color-border-secondary);font-size:11px;background:var(--color-background-secondary)${w?';width:'+w:''}`;
     th.textContent=t;hrow.appendChild(th);
   });
   var tbody=tbl.createTBody();var totalCalcHrs=0;
 
-  function mkTimeSelect(val,onChange){
-    var sel=document.createElement('select');
-    sel.style.cssText='font-size:11px;padding:2px 3px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:var(--color-background-primary);color:var(--color-text-primary);max-width:78px';
-    var timeOpts=typeof TIMES!=='undefined'?TIMES:[];
-    sel.innerHTML='<option value="">—</option>'+timeOpts.map(function(t){return'<option value="'+t+'"'+(t===val?' selected':'')+'>'+t+'</option>';}).join('');
-    sel.onchange=onChange;
-    return sel;
+  function mkTS(val,onChange){
+    var ts=document.createElement('select');
+    ts.style.cssText='font-size:11px;padding:1px 2px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:var(--color-background-primary);color:var(--color-text-primary);max-width:66px';
+    ts.innerHTML='<option value="">—</option>'+(typeof TIMES!=='undefined'?TIMES:[]).map(t=>`<option value="${t}"${t===val?' selected':''}>${t}</option>`).join('');
+    ts.onchange=onChange;return ts;
   }
 
   for(var d=1;d<=daysInMonth;d++){
@@ -884,58 +903,68 @@ function renderAdminHours(){
     var dn=new Date(ds+'T12:00:00').getDay();
     var isSat=dn===6,isFri=dn===5;
     var row=tbody.insertRow();
-    if(isSat)row.style.background='rgba(247,193,193,0.2)';
-    else if(isFri)row.style.background='rgba(253,246,227,0.35)';
+    row.style.borderBottom='0.5px solid var(--color-border-tertiary)';
+    if(isSat)row.style.background='rgba(247,193,193,0.15)';
+    else if(isFri)row.style.background='rgba(253,246,227,0.25)';
 
-    var c0=row.insertCell();c0.style.cssText='padding:4px 6px;border-bottom:0.5px solid var(--color-border-tertiary);font-weight:500;font-size:11px';
-    c0.textContent=d+'.'+mm;
-    var c1=row.insertCell();c1.style.cssText='padding:4px 6px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:11px;color:'+(isSat?'#A32D2D':isFri?'#854F0B':'var(--color-text-secondary)');
-    c1.textContent=DNAME[dn];
+    var c0=row.insertCell();
+    c0.style.cssText='padding:4px 6px;font-size:11px;font-weight:500;white-space:nowrap;color:'+(isSat?'#A32D2D':isFri?'#854F0B':'var(--color-text-primary)');
+    c0.textContent=d+'.'+mm+' '+DNAME[dn];
 
-    if(isSat){
-      var sk=row.insertCell();sk.colSpan=6;sk.style.cssText='border-bottom:0.5px solid var(--color-border-tertiary);text-align:center;color:#A32D2D;font-size:11px;padding:4px 6px';
-      sk.textContent='שבת';continue;
-    }
+    if(isSat){var sk=row.insertCell();sk.colSpan=3;sk.style.cssText='text-align:center;color:#A32D2D;font-size:11px;padding:4px 6px';sk.textContent='שבת';continue;}
 
     var daySlots=_normAdminDay(hrs[d])||[];
     var sl0=daySlots[0]||{start:'',end:''};
-    var sl1=daySlots[1]||{start:'',end:''};
-    var calcH=calcSlotHrs(sl0.start||'',sl0.end||'')+calcSlotHrs(sl1.start||'',sl1.end||'');
+    var sl1=daySlots[1]||null;
+    var calcH=calcSlotHrs(sl0.start||'',sl0.end||'')+(sl1?calcSlotHrs(sl1.start||'',sl1.end||''):0);
     var ovD=overrides[d]!==undefined?parseFloat(overrides[d]):null;
     totalCalcHrs+=(ovD!==null?ovD:calcH);
 
-    (function(d2,s0,s1,ch,ov,mo,sid){
-      var cs0=row.insertCell();cs0.style.cssText='padding:3px 4px;border-bottom:0.5px solid var(--color-border-tertiary)';
-      var cs1=row.insertCell();cs1.style.cssText='padding:3px 4px;border-bottom:0.5px solid var(--color-border-tertiary)';
-      var cs2=row.insertCell();cs2.style.cssText='padding:3px 4px;border-bottom:0.5px solid var(--color-border-tertiary)';
-      var cs3=row.insertCell();cs3.style.cssText='padding:3px 4px;border-bottom:0.5px solid var(--color-border-tertiary)';
-      cs0.appendChild(mkTimeSelect(s0.start||'',function(){updateAdminSlotNew(sid,mo,d2,0,'start',this.value);}));
-      cs1.appendChild(mkTimeSelect(s0.end||'',function(){updateAdminSlotNew(sid,mo,d2,0,'end',this.value);}));
-      cs2.appendChild(mkTimeSelect(s1.start||'',function(){updateAdminSlotNew(sid,mo,d2,1,'start',this.value);}));
-      cs3.appendChild(mkTimeSelect(s1.end||'',function(){updateAdminSlotNew(sid,mo,d2,1,'end',this.value);}));
-      var cc=row.insertCell();cc.style.cssText='padding:3px 6px;border-bottom:0.5px solid var(--color-border-tertiary);text-align:center;font-size:11px;font-weight:'+(ch>0&&ov===null?'500':'400')+';color:'+(ov!==null?'var(--color-text-tertiary)':ch>0?'#10717E':'var(--color-text-tertiary)');
-      cc.textContent=ch>0?ch.toFixed(2).replace(/\.?0+$/,''):'—';
-      var co=row.insertCell();co.style.cssText='padding:3px 4px;border-bottom:0.5px solid var(--color-border-tertiary);text-align:center';
-      var ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='—';ovInp.value=ov!==null?ov:'';
-      ovInp.style.cssText='width:52px;font-size:11px;padding:2px 4px;border:0.5px solid '+(ov!==null?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(ov!==null?'#10717E':'var(--color-text-primary)')+';text-align:center';
-      ovInp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};
-      co.appendChild(ovInp);
-    })(d,sl0,sl1,calcH,ovD,month,s.id);
+    var cShifts=row.insertCell();cShifts.style.cssText='padding:2px 4px';
+    (function(d2,s0,s1,mo,sid){
+      var r0=document.createElement('div');
+      r0.style.cssText='display:flex;align-items:center;gap:3px'+(s1?';margin-bottom:3px':'');
+      r0.appendChild(mkTS(s0.start,function(){updateAdminSlotNew(sid,mo,d2,0,'start',this.value);}));
+      var dash=document.createElement('span');dash.textContent='–';dash.style.cssText='color:var(--color-text-tertiary);padding:0 1px';
+      r0.appendChild(dash);
+      r0.appendChild(mkTS(s0.end,function(){updateAdminSlotNew(sid,mo,d2,0,'end',this.value);}));
+      if(s0.start||s0.end){var x0=document.createElement('button');x0.textContent='×';x0.title='מחק משמרת';x0.style.cssText='font-size:11px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1';x0.onclick=function(){clearAdminSlot(sid,mo,d2,0);};r0.appendChild(x0);}
+      cShifts.appendChild(r0);
+      if(s1){
+        var r1=document.createElement('div');r1.style.cssText='display:flex;align-items:center;gap:3px';
+        r1.appendChild(mkTS(s1.start,function(){updateAdminSlotNew(sid,mo,d2,1,'start',this.value);}));
+        var dash1=document.createElement('span');dash1.textContent='–';dash1.style.cssText='color:var(--color-text-tertiary);padding:0 1px';
+        r1.appendChild(dash1);
+        r1.appendChild(mkTS(s1.end,function(){updateAdminSlotNew(sid,mo,d2,1,'end',this.value);}));
+        var x1=document.createElement('button');x1.textContent='×';x1.title='מחק משמרת';x1.style.cssText='font-size:11px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1';x1.onclick=function(){clearAdminSlot(sid,mo,d2,1);};r1.appendChild(x1);
+        cShifts.appendChild(r1);
+      } else if(s0.start||s0.end){
+        var addBtn=document.createElement('button');addBtn.textContent='+ משמרת';addBtn.style.cssText='font-size:10px;color:#10717E;background:none;border:none;cursor:pointer;padding:1px 0;display:block';addBtn.onclick=function(){addAdminSlot(sid,mo,d2);};cShifts.appendChild(addBtn);
+      }
+    })(d,sl0,sl1,month,s.id);
+
+    var cH=row.insertCell();
+    cH.style.cssText='padding:4px 6px;text-align:center;font-size:11px;font-weight:'+(calcH>0&&ovD===null?'500':'400')+';color:'+(ovD!==null?'var(--color-text-tertiary)':calcH>0?'#10717E':'var(--color-text-tertiary)');
+    cH.textContent=calcH>0?calcH.toFixed(2).replace(/\.?0+$/,''):'—';
+
+    var cOv=row.insertCell();cOv.style.cssText='padding:2px 4px;text-align:center';
+    var ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='—';ovInp.value=ovD!==null?ovD:'';
+    ovInp.style.cssText='width:52px;font-size:11px;padding:2px 4px;border:0.5px solid '+(ovD!==null?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(ovD!==null?'#10717E':'var(--color-text-primary)')+';text-align:center';
+    (function(d2,sid,mo){ovInp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};})(d,s.id,month);
+    cOv.appendChild(ovInp);
   }
 
-  // Total row
   var srow=tbody.insertRow();srow.style.background='rgba(16,113,126,0.06)';
-  var sc0=srow.insertCell();sc0.colSpan=6;sc0.style.cssText='padding:6px 8px;font-size:12px;font-weight:500;color:#10717E';sc0.textContent='סה"כ שעות — '+s.name;
+  var sc0=srow.insertCell();sc0.colSpan=2;sc0.style.cssText='padding:6px 8px;font-size:12px;font-weight:500;color:#10717E';sc0.textContent='סה"כ שעות — '+s.name;
   var sc1=srow.insertCell();sc1.style.cssText='padding:6px 6px;text-align:center;font-size:12px;font-weight:500;color:'+(hrs._totalOverride!==undefined?'var(--color-text-tertiary)':'#10717E');sc1.textContent=totalCalcHrs.toFixed(2).replace(/\.?0+$/,'')||'0';
   var sc2=srow.insertCell();sc2.style.cssText='padding:6px 4px;text-align:center';
   var totInp=document.createElement('input');totInp.type='number';totInp.min='0';totInp.step='0.25';totInp.placeholder='—';totInp.value=hrs._totalOverride!==undefined?hrs._totalOverride:'';
-  totInp.style.cssText='width:60px;font-size:12px;padding:3px 6px;border:0.5px solid '+(hrs._totalOverride!==undefined?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(hrs._totalOverride!==undefined?'#10717E':'var(--color-text-primary)')+';text-align:center;font-weight:500';
+  totInp.style.cssText='width:56px;font-size:12px;padding:3px 6px;border:0.5px solid '+(hrs._totalOverride!==undefined?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(hrs._totalOverride!==undefined?'#10717E':'var(--color-text-primary)')+';text-align:center;font-weight:500';
   totInp.onchange=function(){updateAdminTotalOverride(s.id,month,this.value!==''?this.value:null);};
   sc2.appendChild(totInp);
 
-  // Payment row
   var prow=tbody.insertRow();prow.style.background='rgba(16,113,126,0.04)';
-  var pc0=prow.insertCell();pc0.colSpan=6;pc0.style.cssText='padding:4px 8px;font-size:11px;color:var(--color-text-secondary)';pc0.textContent='לתשלום ('+s.rate+'₪/ש\')';
+  var pc0=prow.insertCell();pc0.colSpan=2;pc0.style.cssText='padding:4px 8px;font-size:11px;color:var(--color-text-secondary)';pc0.textContent='לתשלום ('+s.rate+'₪/ש\')';
   var pc1=prow.insertCell();pc1.colSpan=2;pc1.style.cssText='padding:4px 8px;text-align:center;font-size:13px;font-weight:600;color:#10717E';
   var effHrs=hrs._totalOverride!==undefined?parseFloat(hrs._totalOverride):totalCalcHrs;
   pc1.textContent='₪'+Math.round(effHrs*(s.rate||0)).toLocaleString('he-IL');
@@ -977,6 +1006,16 @@ function removeAdminSlot(staffId,month,day,idx){
   if(!norm)return;
   norm.splice(idx,1);
   if(norm.length)DB.adminHours[key][day]=norm;
+  else delete DB.adminHours[key][day];
+  saveDB();renderAdminHours();
+}
+
+function clearAdminSlot(staffId,month,day,idx){
+  const key=`${month}_${staffId}`;
+  if(!DB.adminHours||!DB.adminHours[key])return;
+  const slots=_normAdminDay(DB.adminHours[key][day])||[];
+  slots.splice(idx,1);
+  if(slots.length&&(slots[0].start||slots[0].end))DB.adminHours[key][day]=slots;
   else delete DB.adminHours[key][day];
   saveDB();renderAdminHours();
 }
@@ -1159,10 +1198,11 @@ function exportAdminExcel(month){
   const staff=DB.adminStaff||[];
   const rows=getAdminMonthlyRows(month).map(r=>{
     const b=parseBankStr(r.bank||'');
-    return[r.name,b.bankName||'',b.branch||'',b.account||'','שכר עבודה '+month.replace('-','.')+'  ('+r.hrs+' שעות)',r.total];
+    const code=b.bankCode||getBankCode(b.bankName||'');
+    return[r.name,code,b.branch||'',b.account||'','תשלום לספק',r.total];
   });
   if(!rows.length){alert('אין שעות מוזנות לחודש זה');return;}
-  _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'צוות_מנהלי_'+month+'.xls');
+  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'צוות_מנהלי_'+month+'.xls');
 }
 // ═══════════════════════════════════════════════
 //  גאנט שנתי
@@ -2163,12 +2203,13 @@ function exportPaymentsExcel(month){
     const calc=calcLect(lid,month);if(!calc||calc.total===0)return;
     const b=parseBankStr(l.bank||'');
     const code=b.bankCode||getBankCode(b.bankName||'');
-    rows.push([l.name,b.bankName||'',code,b.branch||'',b.account||'','שכר הוראה '+month.replace('-','.'),Math.round(calc.total)]);
+    rows.push([l.name,code,b.branch||'',b.account||'','תשלום לספק',Math.round(calc.total)]);
   });
   // תשלומים נוספים
   (DB.miscPayments||[]).filter(p=>p.month===month&&['approved','done','invoice'].includes(p.status)).forEach(p=>{
-    const code=getBankCode(p.bankName||'');
-    rows.push([p.name,p.bankName||'',code,p.branch||'',p.account||'','תשלום נוסף '+month.replace('-','.'),Math.round(p.amount)]);
+    const b=parseBankStr(p.bankName||'');
+    const code=b.bankCode||getBankCode(b.bankName||'');
+    rows.push([p.name,code,p.branch||'',p.account||'','תשלום לספק',Math.round(p.amount)]);
   });
   // צוות מנהלי עצמאי
   getAdminMonthlyRows(month).filter(r=>r.type!=='employee').forEach(r=>{
@@ -2178,17 +2219,17 @@ function exportPaymentsExcel(month){
     const b=parseBankStr(r.bank||'');
     const code=b.bankCode||getBankCode(b.bankName||'');
     const vat=r.type==='freelance_vat'?Math.round(r.total*0.18):0;
-    rows.push([r.name,b.bankName||'',code,b.branch||'',b.account||'','שכר עובד מנהלי '+month.replace('-','.'),Math.round(r.total+vat)]);
+    rows.push([r.name,code,b.branch||'',b.account||'','תשלום לספק',Math.round(r.total+vat)]);
   });
   if(!rows.length){alert('אין תשלומים מאושרים לייצוא');return;}
-  _downloadXls([['שם המוטב','שם בנק','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_'+month+'.xls');
+  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_'+month+'.xls');
 }
 function exportMiscExcel(month){
   if(!month){month=document.getElementById('pay-month')?.value||document.getElementById('m-month')?.value;if(!month){alert('בחר חודש');return;}}
   const pmts=(DB.miscPayments||[]).filter(p=>p.month===month&&['approved','done','received','invoice'].includes(p.status));
   if(!pmts.length){alert('אין תשלומים נוספים מאושרים לייצוא');return;}
-  const rows=pmts.map(p=>[p.name,p.bankName||'',p.branch||'',p.account||'',p.description||p.name,Math.round(p.amount)]);
-  _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_נוספים_'+month+'.xls');
+  const rows=pmts.map(p=>{const b=parseBankStr(p.bankName||'');const code=b.bankCode||getBankCode(b.bankName||'');return[p.name,code,p.branch||'',p.account||'','תשלום לספק',Math.round(p.amount)];});
+  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_נוספים_'+month+'.xls');
 }
 function _downloadXls(data,filename){
   let xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="פירוט"><Table>';
@@ -2223,8 +2264,8 @@ function renderDashStats(months){
   let miscCost=0;months.forEach(m=>{(DB.miscPayments||[]).filter(p=>p.month===m&&['approved','done','invoice'].includes(p.status)).forEach(p=>{miscCost+=p.amount||0;});});
   let adminCost=0;months.forEach(m=>{getAdminMonthlyRows(m).forEach(r=>{const pKey=m+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(['approved','bank','done','received'].includes(st)){const vat=r.type==='freelance_vat'?Math.round(r.total*0.18):0;adminCost+=r.total+vat;}});});
   const totalCost=Math.round(cost)+Math.round(miscCost)+Math.round(adminCost);
-  // ממתינים לחשבונית — עצמאיים בסטטוס done
-  let waitInvoice=0;months.forEach(m=>{const mLids=new Set(DB.days.filter(d=>d.date.startsWith(m)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));mLids.forEach(lid=>{const l=getLect(lid);if(!l||l.type==='employee')return;if((DB.payStatuses||{})[m+'_'+lid]==='done')waitInvoice++;});});
+  // ממתינים לחשבונית — עצמאיים בסטטוס done (מרצים + תשלומים נוספים + צוות מנהלי)
+  let waitInvoice=0;months.forEach(m=>{Object.entries(DB.payStatuses||{}).filter(([k,v])=>k.startsWith(m+'_')&&v==='done').forEach(([k])=>{if(k.startsWith(m+'_adm_')){const staffId=k.slice(m.length+5);const s=(DB.adminStaff||[]).find(x=>x.id===staffId);if(s&&s.type!=='employee')waitInvoice++;}else{const lid=k.slice(m.length+1);const l=getLect(lid);if(l&&l.type!=='employee')waitInvoice++;}});(DB.miscPayments||[]).filter(p=>p.month===m&&p.status==='done').forEach(()=>waitInvoice++);});
   el.innerHTML=`<div class="stat-card"><div class="stat-lbl">ימי לימוד מאושרים</div><div class="stat-val">${approved.length}<span style="font-size:12px;color:var(--color-text-secondary)">/${days.length}</span></div></div><div class="stat-card"><div class="stat-lbl">ש"ה הוראה</div><div class="stat-val">${hrs.toFixed(1)}</div></div><div class="stat-card"><div class="stat-lbl">עלות הוראה</div><div class="stat-val" style="font-size:16px">₪${Math.round(cost).toLocaleString('he-IL')}</div></div><div class="stat-card"><div class="stat-lbl">תשלומים נוספים</div><div class="stat-val" style="font-size:16px">₪${Math.round(miscCost).toLocaleString('he-IL')}</div></div><div class="stat-card"><div class="stat-lbl">צוות מנהלי</div><div class="stat-val" style="font-size:16px">₪${Math.round(adminCost).toLocaleString('he-IL')}</div></div><div class="stat-card" style="border-color:#10717E"><div class="stat-lbl" style="font-weight:600">סה"כ עלות חודשית</div><div class="stat-val" style="font-size:16px;color:#10717E">₪${totalCost.toLocaleString('he-IL')}</div></div><div class="stat-card" style="border-color:${warn?'#F7C1C1':'var(--color-border-secondary)'}"><div class="stat-lbl">ממתינים לאישור</div><div class="stat-val" style="color:${warn?'#854F0B':'#10717E'}">${pending.length} ימים<span style="font-size:11px"> + ${pendingPriv.length} כלי</span></div></div>${waitInvoice>0?`<div class="stat-card" style="border-color:#E8A838"><div class="stat-lbl" style="color:#854F0B">ממתינים לחשבונית</div><div class="stat-val" style="color:#854F0B">${waitInvoice}</div></div>`:''}`;
 }
 
@@ -2434,7 +2475,7 @@ function checkReturnedItems(){
   if(confirm(msg)){const btn=document.querySelector('#main-nav .nb');nav('approval',btn);}
 }
 function logout(){clearTimeout(_sessionTimer);_sessionTimer=null;currentRole=null;pendingRole=null;currentTrack=null;document.getElementById('login-screen').style.display='flex';document.getElementById('app-screen').classList.remove('active');document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');document.getElementById('pin-input').value='';}
-const ROLE_PAGES={principal:['dash','entry','private','approval','monthly','payments','admin','gantt','settings'],coord_m:['dash','entry','private','approval','monthly','payments','gantt','settings'],coord_w:['dash','entry','private','approval','monthly','payments','gantt','settings'],office:['dash','entry','private','monthly','payments','admin','gantt','settings'],teacher:['teacher']};
+const ROLE_PAGES={principal:['dash','entry','private','approval','monthly','payments','admin','gantt','settings'],coord_m:['dash','entry','private','approval','monthly','payments','gantt','settings'],coord_w:['dash','entry','private','approval','monthly','payments','gantt','settings'],office:['dash','entry','private','payments','admin','gantt','settings'],teacher:['teacher']};
 function applyRoleNav(role){const allowed=ROLE_PAGES[role]||ROLE_PAGES.principal;let first=null;document.getElementById('main-nav').querySelectorAll('.nb').forEach(btn=>{const m=btn.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;const show=id&&allowed.includes(id);btn.style.display=show?'':'none';if(show&&!first)first=btn;});document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));if(first){const m=first.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;if(id){document.getElementById('pg-'+id)?.classList.add('act');first.classList.add('act');}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='private')renderPrivate();if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}}}
 function nav(id,btn){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));document.getElementById('pg-'+id)?.classList.add('act');if(btn)btn.classList.add('act');if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='private')renderPrivate();if(id==='approval'){renderApproval();switchATab('days');}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='settings'){renderSettings();switchSTab('lect');}if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='gantt'){renderGantt();}if(id==='admin'){renderAdminHours();}}
 
@@ -2668,6 +2709,8 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
           <div style="display:flex;justify-content:space-between;align-items:center;border-top:0.5px solid var(--color-border-tertiary);padding-top:8px"><div style="font-size:12px;color:var(--color-text-secondary)">סה״כ לתשלום: <strong style="font-size:15px;color:#10717E">${fmtM(calc.total)}</strong></div><div style="font-size:11px;color:var(--color-text-secondary)">${(()=>{const b=parseBankStr(l.bank);return[b.bankName,b.bankCode,b.branch,b.account].filter(x=>x&&x!=='0').join(' / ')||'אין פרטי בנק';})()}</div></div></div></div>`;
     const rowEl=document.createElement('div');
     rowEl.innerHTML=rowHtml;
+    const lprDiv=rowEl.querySelector('.lect-pay-row');
+    if(lprDiv){const strip=document.createElement('label');strip.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:11px;color:var(--color-text-tertiary);cursor:pointer;border-bottom:0.5px solid var(--color-border-tertiary)';strip.innerHTML=`<input type="checkbox" class="mpay-cb" data-key="${key}" onchange="updateMonthlySel()" style="width:14px;height:14px;accent-color:#10717E"> בחר`;lprDiv.prepend(strip);}
     container.appendChild(rowEl);
   });
   // Append misc payments
@@ -2697,7 +2740,7 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
       const totalWithVat=r.total+vat;
       const typeLbl={'employee':'שכיר','freelance_vat':'מורשה','freelance_exempt':'פטור'}[r.type]||r.type;
       const rowEl=document.createElement('div');
-      rowEl.innerHTML=`<div class="lect-pay-row" style="${isReceived?'border-color:#3B6D11;background:rgba(234,243,222,0.35);':isApproved?'border-color:#C0DD97;':isReview?'border-color:#F7C1C1;':''}">
+      rowEl.innerHTML=`<div class="lect-pay-row" data-pkey="${pKey}" style="${isReceived?'border-color:#3B6D11;background:rgba(234,243,222,0.35);':isApproved?'border-color:#C0DD97;':isReview?'border-color:#F7C1C1;':''}">
 <div class="lect-pay-hdr" onclick="toggleLPR('lpr_adm_${r.id}')">
 <div style="display:flex;align-items:center;gap:10px">
 <div style="width:34px;height:34px;border-radius:50%;background:${isReceived?'#EAF3DE':isApproved?'rgba(225,245,238,0.6)':'var(--color-background-secondary)'};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:${isReceived?'#3B6D11':isApproved?'#085041':'var(--color-text-secondary)'};">${r.name.charAt(0)}</div>
@@ -2725,12 +2768,17 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
 <div style="font-size:12px;color:var(--color-text-secondary)">סה״כ לתשלום: <strong style="font-size:15px;color:#10717E">₪${totalWithVat.toLocaleString('he-IL')}</strong></div>
 <div style="font-size:11px;color:var(--color-text-secondary)">${r.bank||'אין פרטי בנק'}</div>
 </div></div></div>`;
+      const admLprDiv=rowEl.querySelector('.lect-pay-row');
+      if(admLprDiv){const strip=document.createElement('label');strip.style.cssText='display:flex;align-items:center;gap:6px;padding:3px 10px;font-size:11px;color:var(--color-text-tertiary);cursor:pointer;border-bottom:0.5px solid var(--color-border-tertiary)';strip.innerHTML=`<input type="checkbox" class="mpay-cb" data-key="${pKey}" onchange="updateMonthlySel()" style="width:14px;height:14px;accent-color:#10717E"> בחר`;admLprDiv.prepend(strip);}
       container.appendChild(rowEl);
     });
   }
 
 }
 function toggleLPR(id){const b=document.getElementById(id);if(b)b.classList.toggle('open');}
+function toggleAllMonthlyPay(checked){document.querySelectorAll('.mpay-cb').forEach(cb=>cb.checked=checked);updateMonthlySel();}
+function updateMonthlySel(){const n=document.querySelectorAll('.mpay-cb:checked').length;const el=document.getElementById('m-bulk-count');if(el)el.textContent=n?n+' נבחרו':'';}
+function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};keys.forEach(k=>{DB.payStatuses[k]=st;});saveDB();renderMonthly();}
 function overrideF(key,field,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[key])DB.payOverrides[key]={};DB.payOverrides[key][field]=parseFloat(val)||0;saveDB();renderMonthly();}
 function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','bank':'הוזן לבנק','pending':'ממתין'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();}
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='bank'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
