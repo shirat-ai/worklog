@@ -105,6 +105,7 @@ tr.drag-over td{border-top:2px solid #10717E}
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -347,6 +348,7 @@ tr.drag-over td{border-top:2px solid #10717E}
             <th style="width:78px">מנהלה ₪</th>
             <th style="width:70px">סוג</th>
             <th style="width:175px">בנק / קוד / סניף / חשבון</th>
+            <th style="width:190px">דוא"ל</th>
             <th style="width:26px"></th>
           </tr></thead>
           <tbody id="lect-rows"></tbody>
@@ -362,6 +364,7 @@ tr.drag-over td{border-top:2px solid #10717E}
           <div class="fg" style="width:62px"><label>בנק</label><input id="nl-bank" placeholder="בנק"></div>
           <div class="fg" style="width:42px"><label>סניף</label><input id="nl-branch" placeholder="סניף"></div>
           <div class="fg" style="width:78px"><label>חשבון</label><input id="nl-acc" placeholder="חשבון"></div>
+          <div class="fg" style="width:150px"><label>דוא"ל</label><input id="nl-email" type="email" placeholder="name@example.com"></div>
           <button class="btn btn-p btn-sm" style="align-self:flex-end" onclick="addLecturer()">+ הוסף</button>
           <button class="btn btn-sm" style="align-self:flex-end;font-size:11px" onclick="importBankDataFromSheet()" title="ייבוא פרטי בנק מגיליון Google Sheets מעודכן">↓ ייבא פרטי בנק</button>
         </div>
@@ -435,6 +438,7 @@ tr.drag-over td{border-top:2px solid #10717E}
             <th id="admin-rate-th" style="width:80px">תעריף שעתי</th>
             <th style="width:80px">סוג</th>
             <th>בנק / סניף / חשבון</th>
+            <th style="width:190px">דוא"ל</th>
             <th style="width:30px"></th>
           </tr></thead>
           <tbody id="admin-staff-rows"></tbody>
@@ -446,6 +450,7 @@ tr.drag-over td{border-top:2px solid #10717E}
           <div class="fg" style="width:55px"><label>בנק</label><input id="na-bank" placeholder="בנק"></div>
           <div class="fg" style="width:48px"><label>סניף</label><input id="na-branch" placeholder="סניף"></div>
           <div class="fg" style="width:90px"><label>חשבון</label><input id="na-acc" placeholder="חשבון"></div>
+          <div class="fg" style="width:150px"><label>דוא"ל</label><input id="na-email" type="email" placeholder="name@example.com"></div>
           <button class="btn btn-p btn-sm" style="align-self:flex-end" onclick="addAdminStaff()">+ הוסף</button>
         </div>
       </div>
@@ -466,6 +471,12 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const fbDB = firebase.database();
 const FB_PATH = 'shirat_v1';
+// ── EmailJS — מלא את הפרטים אחרי יצירת חשבון ב-emailjs.com ──
+const EMAILJS_PUBLIC_KEY  = 'PxiaNGSWQMDKE75IX';
+const EMAILJS_PRIVATE_KEY = '';  // אם Strict Mode פעיל — הכנס כאן Private Key מ-emailjs.com → Account → API Keys
+const EMAILJS_SERVICE_ID  = 'service_vey7uqo';
+const EMAILJS_TEMPLATE_ID = 'template_slt51dm';
+const EMAILJS_READY = ()=>typeof emailjs!=='undefined'&&EMAILJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY';
 let _fbSaveTimer = null;
 let _fbListening = false;
 let _fbIgnoreNext = false;
@@ -549,6 +560,7 @@ function renderAdminStaff(){
         <option value="freelance_exempt" ${s.type==='freelance_exempt'?'selected':''}>פטור</option>
       </select></td>
       <td style="padding:4px 8px"><input value="${s.bank||''}" placeholder="בנק/סניף/חשבון" style="font-size:11px;width:100%;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'bank',this.value)"></td>
+      <td style="padding:4px 8px"><input type="email" value="${s.email||''}" placeholder="דוא&quot;ל" style="font-size:11px;width:100%;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'email',this.value)"></td>
       <td style="padding:4px 6px"><button class="btn btn-sm" style="color:#A32D2D;font-size:10px" onclick="deleteAdminStaff(${i})">✕</button></td>
     </tr>`).join('');
 }
@@ -564,9 +576,10 @@ function addAdminStaff(){
   const name=(document.getElementById('na-name')?.value||'').trim();
   if(!name){alert('יש להזין שם');return;}
   const bank=[document.getElementById('na-bank')?.value||'',document.getElementById('na-branch')?.value||'',document.getElementById('na-acc')?.value||''].filter(Boolean).join('/');
-  DB.adminStaff.push({id:'as_'+Date.now(),name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,type:document.getElementById('na-type')?.value||'employee',bank});
+  const email=(document.getElementById('na-email')?.value||'').trim();
+  DB.adminStaff.push({id:'as_'+Date.now(),name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,type:document.getElementById('na-type')?.value||'employee',bank,email});
   saveDB();renderAdminStaff();
-  ['na-name','na-rate','na-bank','na-branch','na-acc'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['na-name','na-rate','na-bank','na-branch','na-acc','na-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
 
 function deleteAdminStaff(idx){
@@ -1636,6 +1649,7 @@ function loadDB() {
   if (loader) loader.style.display = 'flex';
   fbDB.ref(FB_PATH).once('value').then(snap => {
     _applySnapshot(snap.val());
+    _setLecturerEmails();
     if (loader) loader.style.display = 'none';
     if (currentRole) applyRoleNav(currentRole);
     setTimeout(checkAutoReminders, 2000);
@@ -1650,7 +1664,7 @@ function loadDB() {
 function _applySnapshot(p) {
   if (!p) return;
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','ganttPlanned','lockedMonths']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','ganttPlanned','lockedMonths','payDoneDates','payReminderSent']
     .forEach(k => { if (p[k] !== undefined) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
@@ -1672,6 +1686,23 @@ function _applySnapshot(p) {
       if (!DB.quotas[t].find(q => q.year === grp)) DB.quotas[t].push({year:grp,quota:0});
     });
   });
+}
+
+function _setLecturerEmails() {
+  const MAP = {
+    l_itens:'eitan.avnet@gmail.com', l_yonraz:'yonatanrazel@gmail.com',
+    l_itamar:'ringelit@gmail.com', l_aharon:'razels@gmail.com',
+    l_yftah:'iftachdekel@gmail.com', l_shimon:'s0548598762@gmail.com',
+    l_yohanan:'yyba29@gmail.com', l_michal:'michal@shirat.net',
+    l_hadasa:'hadassashirat@gmail.com', l_edna:'ednagiat1@gmail.com',
+    l_miriam:'miriam444eli@gmail.com', l_keren:'keren@shirat.net',
+    l_maya_p:'mayapolizer@gmail.com', l_maya_h:'mayahartmansivan@gmail.com',
+    l_rivka:'rivkare123@gmail.com', l_shira:'shira8sara@gmail.com',
+    l_hadar:'hadarsalzer@gmail.com'
+  };
+  let changed=false;
+  (DB.lecturers||[]).forEach(l=>{if(!l.email&&MAP[l.id]){l.email=MAP[l.id];changed=true;}});
+  if(changed)saveDB();
 }
 
 function _startListener() {
@@ -1865,12 +1896,12 @@ function renderSettings(keepTab){if(!keepTab)switchSTab('lect');renderAdminStaff
       });
       el.appendChild(tr);
     });
-  });document.getElementById('lect-rows').innerHTML=DB.lecturers.map((l,i)=>{const b=parseBankStr(l.bank);const tSel=`<select style="font-size:10px;padding:1px;width:58px" onchange="DB.lecturers[${i}].type=this.value;saveDB()"><option value="freelance_exempt"${l.type==='freelance_exempt'?' selected':''}>פטור</option><option value="freelance_vat"${l.type==='freelance_vat'?' selected':''}>מורשה</option><option value="employee"${l.type==='employee'?' selected':''}>שכיר</option></select>`;const trSel=`<select style="font-size:10px;padding:1px;width:44px" onchange="DB.lecturers[${i}].track=this.value;saveDB()"><option value="m"${l.track==='m'?' selected':''}>ג</option><option value="w"${l.track==='w'?' selected':''}>נ</option><option value="both"${l.track==='both'?' selected':''}>ג+נ</option></select>`;return`<tr style="${l.type==='employee'?'background:rgba(250,238,218,0.2)':''}"><td style="padding:3px 5px;font-size:11px">${l.name}</td><td>${trSel}</td><td><input type="number" value="${l.rate}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].rate=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.ratePriv||0}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].ratePriv=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.travel||0}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].travel=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.management||0}" style="width:70px;font-size:11px" onchange="DB.lecturers[${i}].management=parseInt(this.value)||0;saveDB()"></td><td>${tSel}</td><td><div style="display:flex;gap:2px"><input value="${b.bankName}" placeholder="בנק" style="font-size:10px;width:45px" onchange="setBankField(${i},'bankName',this.value)"><input value="${b.bankCode||''}" placeholder="קוד" style="font-size:10px;width:30px" onchange="setBankField(${i},'bankCode',parseInt(this.value)||0)"><input value="${b.branch}" placeholder="סניף" style="font-size:10px;width:40px" onchange="setBankField(${i},'branch',this.value)"><input value="${b.account}" placeholder="חשבון" style="font-size:10px;width:50px" onchange="setBankField(${i},'account',this.value)"></div></td><td><button class="btn-del" onclick="DB.lecturers.splice(${i},1);saveDB();renderSettings()">×</button></td></tr>`;}).join('');const sr=document.getElementById('student-rows');if(sr)sr.innerHTML=DB.students.map((s,i)=>`<tr><td style="padding:3px 6px;font-size:12px">${s.name}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s.instrument}</td><td><input type="number" value="${s.totalQuota}" style="width:58px;font-size:12px" onchange="DB.students[${i}].totalQuota=parseFloat(this.value)||0;saveDB()"></td><td><button class="btn-del" onclick="DB.students.splice(${i},1);saveDB();renderSettings()">×</button></td></tr>`).join('');}
+  });document.getElementById('lect-rows').innerHTML=DB.lecturers.map((l,i)=>{const b=parseBankStr(l.bank);const tSel=`<select style="font-size:10px;padding:1px;width:58px" onchange="DB.lecturers[${i}].type=this.value;saveDB()"><option value="freelance_exempt"${l.type==='freelance_exempt'?' selected':''}>פטור</option><option value="freelance_vat"${l.type==='freelance_vat'?' selected':''}>מורשה</option><option value="employee"${l.type==='employee'?' selected':''}>שכיר</option></select>`;const trSel=`<select style="font-size:10px;padding:1px;width:44px" onchange="DB.lecturers[${i}].track=this.value;saveDB()"><option value="m"${l.track==='m'?' selected':''}>ג</option><option value="w"${l.track==='w'?' selected':''}>נ</option><option value="both"${l.track==='both'?' selected':''}>ג+נ</option></select>`;return`<tr style="${l.type==='employee'?'background:rgba(250,238,218,0.2)':''}"><td style="padding:3px 5px;font-size:11px">${l.name}</td><td>${trSel}</td><td><input type="number" value="${l.rate}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].rate=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.ratePriv||0}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].ratePriv=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.travel||0}" style="width:52px;font-size:11px" onchange="DB.lecturers[${i}].travel=parseInt(this.value)||0;saveDB()"></td><td><input type="number" value="${l.management||0}" style="width:70px;font-size:11px" onchange="DB.lecturers[${i}].management=parseInt(this.value)||0;saveDB()"></td><td>${tSel}</td><td><div style="display:flex;gap:2px"><input value="${b.bankName}" placeholder="בנק" style="font-size:10px;width:45px" onchange="setBankField(${i},'bankName',this.value)"><input value="${b.bankCode||''}" placeholder="קוד" style="font-size:10px;width:30px" onchange="setBankField(${i},'bankCode',parseInt(this.value)||0)"><input value="${b.branch}" placeholder="סניף" style="font-size:10px;width:40px" onchange="setBankField(${i},'branch',this.value)"><input value="${b.account}" placeholder="חשבון" style="font-size:10px;width:50px" onchange="setBankField(${i},'account',this.value)"></div></td><td><input type="email" value="${l.email||''}" placeholder="דוא&quot;ל" style="font-size:10px;width:180px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 4px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="DB.lecturers[${i}].email=this.value.trim();saveDB()"></td><td><button class="btn-del" onclick="DB.lecturers.splice(${i},1);saveDB();renderSettings()">×</button></td></tr>`;}).join('');const sr=document.getElementById('student-rows');if(sr)sr.innerHTML=DB.students.map((s,i)=>`<tr><td style="padding:3px 6px;font-size:12px">${s.name}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s.instrument}</td><td><input type="number" value="${s.totalQuota}" style="width:58px;font-size:12px" onchange="DB.students[${i}].totalQuota=parseFloat(this.value)||0;saveDB()"></td><td><button class="btn-del" onclick="DB.students.splice(${i},1);saveDB();renderSettings()">×</button></td></tr>`).join('');}
 
 
 
 function addYearQuota(){const year=document.getElementById('nq-year').value.trim();const track=document.getElementById('nq-track').value;const quota=parseFloat(document.getElementById('nq-q').value)||8;if(!year)return;if(!DB.quotas)DB.quotas={m:[],w:[]};if(!DB.quotas[track])DB.quotas[track]=[];DB.quotas[track].push({year,quota});if(!DB.groups[track])DB.groups[track]=[];if(!DB.groups[track].includes(year))DB.groups[track].push(year);saveDB();renderSettings();document.getElementById('nq-year').value='';}
-function unapproveDay(id){const d=DB.days.find(x=>x.id===id);if(d){d.dayApproval='pending';d.principalNote='';logAction('ביטול אישור יום',d.date);saveDB();renderApprDays();}}
+function unapproveDay(id){const d=DB.days.find(x=>x.id===id);if(!d)return;if(isMonthLocked(d.date.slice(0,7))){alert('חודש זה נעול. שחרר את הנעילה כדי לבטל אישור.');return;}d.dayApproval='pending';d.principalNote='';logAction('ביטול אישור יום',d.date);saveDB();renderApprDays();}
 
 function exportBank(){const month=document.getElementById('m-month').value;const mLabel=MONTHS_LIST.find(m=>m.v===month)?.l||month;const rows=[['שם','שם בנק','סניף','מספר חשבון','ש\u05d4\u05d4','שכר הוראה','פרטני','מנהלה','נסיעות','מע\u05d4מ','סה\u05d4כ','עבור חודש']];DB.lecturers.filter(l=>l.type!=='employee').forEach(l=>{const key=month+'_'+l.id;const st=DB.payStatuses&&DB.payStatuses[key];if(st==='approved'||st==='bank'){const c=calcLect(l.id,month);if(!c||c.total===0)return;const b=parseBankStr(l.bank);rows.push([l.name,b.bankName,b.branch,b.account,fmt(c.hrs),Math.round(c.base),Math.round(c.privBase),Math.round(c.management),Math.round(c.travel),Math.round(c.vat),Math.round(c.total),mLabel]);}});(DB.miscPayments||[]).filter(p=>p.month===month&&(p.status==='approved'||p.status==='done')).forEach(p=>{rows.push([p.name,p.bankName||'',p.branch||'',p.account||'','','','','','','',p.amount,mLabel]);});getAdminMonthlyRows(month).filter(r=>r.type!=='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='bank'){const b=parseBankStr(r.bank);const vat=r.type==='freelance_vat'?Math.round(r.total*0.18):0;rows.push([r.name,b.bankName||'',b.branch||'',b.account||'',r.hrs,r.total,'','','',vat,r.total+vat,mLabel]);}});if(rows.length===1){alert('אין תשלומים מאושרים');return;}downloadCSV(rows,'bank_'+month+'.csv');}
 const SCHED_KEYS=[
@@ -1916,9 +1947,9 @@ function setupGroupContainerDrag(){const cont=document.getElementById('groups-co
 function onPrivLectChange(sel){const inl=document.getElementById('new-lect-inline');if(inl)inl.style.display=sel.value==='__new__'?'flex':'none';}
 function addLectFromPrivForm(){const name=document.getElementById('pf-nl-name')?.value.trim();const rate=parseInt(document.getElementById('pf-nl-rate')?.value)||0;const type=document.getElementById('pf-nl-type')?.value||'freelance_exempt';if(!name){alert('יש להזין שם');return;}const id='l_new_'+Date.now();DB.lecturers.push({id,name,track:'both',rate:0,ratePriv:rate,travel:0,management:0,type,bank:''});saveDB();const sel=document.getElementById('pf-l');if(sel){const opt=document.createElement('option');opt.value=id;opt.textContent=name;opt.selected=true;sel.insertBefore(opt,sel.querySelector('[value="__new__"]'));sel.value=id;document.getElementById('new-lect-inline').style.display='none';if(document.getElementById('pf-nl-name'))document.getElementById('pf-nl-name').value='';}}
 function renderPayments(){const month=document.getElementById('pay-month')?.value;if(!month)return;const pmts=(DB.miscPayments||[]).filter(p=>p.month===month);const el=document.getElementById('misc-list');if(!el)return;if(!pmts.length){el.innerHTML='<div style="font-size:12px;color:var(--color-text-secondary);padding:10px 0">אין תשלומים נוספים לחודש זה</div>';return;}el.innerHTML='<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="min-width:500px"><thead><tr><th style="padding:6px 9px">שם / גורם</th><th>תאריך</th><th>בנק</th><th>סניף</th><th>חשבון</th><th>סכום</th><th>גורם מאשר</th><th>הערות</th><th>סטטוס</th><th></th></tr></thead><tbody>'+pmts.map(p=>`<tr><td style="padding:5px 8px;font-size:12px;font-weight:500">${p.name}</td><td style="font-size:12px;color:var(--color-text-secondary)">${p.date||''}</td><td style="font-size:12px">${p.bankName||''}</td><td style="font-size:12px">${p.branch||''}</td><td style="font-size:12px">${p.account||''}</td><td style="font-size:12px;font-weight:500;color:#10717E">${fmtM(p.amount)}</td><td style="font-size:12px;color:var(--color-text-secondary)">${p.approver||''}</td><td style="font-size:12px;color:var(--color-text-secondary)">${p.notes||''}</td><td><div style="display:flex;gap:3px;flex-wrap:wrap">${p.status==='pending'?`<button class="btn btn-ok btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','approved')">אשר</button>`:p.status==='approved'?`<span class="badge b-ok" style="font-size:10px">אושר</span><button class="btn btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','done')">שולם</button><button class="btn btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','pending')">בטל</button>`:p.status==='done'?`<span class="badge" style="font-size:10px;background:#EAF3DE;color:#3B6D11">שולם</span><button class="btn btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','invoice')">+ חשבונית</button><button class="btn btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','approved')">בטל</button>`:p.status==='invoice'?`<span class="badge b-ok" style="font-size:10px">שולם ✓ חשבונית</span><button class="btn btn-sm" style="font-size:10px" onclick="updateMiscStatus('${p.id}','done')">בטל חשבונית</button>`:`<span class="badge b-ok" style="font-size:10px">שולם ✓ חשבונית</span>`}</div></td><td style="display:flex;gap:3px"><button class="btn btn-sm" style="font-size:10px" onclick="editMisc('${p.id}')">✏</button><button class="btn-del" onclick="delMisc('${p.id}')">×</button></td></tr>`).join('')+'</tbody></table></div><div style="padding:8px 14px;border-top:0.5px solid var(--color-border-tertiary);font-size:12px">'+pmts.length+' תשלומים | '+fmtM(pmts.reduce((s,p)=>s+p.amount,0))+' סה״כ</div></div>';}
-function showMiscForm(){const form=document.getElementById('misc-form');if(form.style.display==='block'){form.style.display='none';return;}const approvers=['רכז המסלול','רכזת המסלול','מנהלת המשרד','רכז תחזוקה','מנהל בית הספר'];form.innerHTML='<div class="card"><div style="display:flex;gap:7px;flex-wrap:wrap;align-items:flex-end"><div class="fg" style="width:140px"><label>שם מלא / גורם</label><input id="mf-name" placeholder="שם"></div><div class="fg" style="width:85px"><label>בנק</label><input id="mf-bank" placeholder="בנק"></div><div class="fg" style="width:60px"><label>סניף</label><input id="mf-branch" placeholder="סניף"></div><div class="fg" style="width:90px"><label>מספר חשבון</label><input id="mf-acc" placeholder="חשבון"></div><div class="fg" style="width:85px"><label>סכום ₪</label><input type="number" id="mf-amount" placeholder="0" min="0"></div><div class="fg" style="width:140px"><label>גורם מאשר</label><select id="mf-approver">'+approvers.map(a=>'<option>'+a+'</option>').join('')+'</select></div><div class="fg" style="width:160px"><label>הערות</label><input id="mf-notes" placeholder="הסבר קצר..."></div><button class="btn btn-p btn-sm" onclick="saveMiscPayment()">שמור</button><button class="btn btn-sm" onclick="document.getElementById(\'misc-form\').style.display=\'none\'">ביטול</button></div></div>';form.style.display='block';}
-function saveMiscPayment(){const name=document.getElementById('mf-name').value.trim();const amount=parseFloat(document.getElementById('mf-amount').value)||0;if(!name||!amount){alert('יש למלא שם וסכום');return;}const month=document.getElementById('pay-month').value;if(!DB.miscPayments)DB.miscPayments=[];logAction('תשלום נוסף הוזן',document.getElementById('misc-name')?.value||'');DB.miscPayments.push({id:'mp'+Date.now(),month,name,date:new Date().toISOString().split('T')[0],bankName:document.getElementById('mf-bank').value,branch:document.getElementById('mf-branch').value,account:document.getElementById('mf-acc').value,amount,approver:document.getElementById('mf-approver').value,notes:document.getElementById('mf-notes').value,status:'pending'});saveDB();document.getElementById('misc-form').style.display='none';renderPayments();}
-function updateMiscStatus(id,val){const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status=val;const sl={'approved':'אושר','done':'שולם','invoice':'שולם+חשבונית','pending':'ממתין'}[val]||val;logAction('עדכון תשלום נוסף',sl+' — '+(p.name||''));saveDB();renderPayments();}}
+function showMiscForm(){const form=document.getElementById('misc-form');if(form.style.display==='block'){form.style.display='none';return;}const approvers=['רכז המסלול','רכזת המסלול','מנהלת המשרד','רכז תחזוקה','מנהל בית הספר'];form.innerHTML='<div class="card"><div style="display:flex;gap:7px;flex-wrap:wrap;align-items:flex-end"><div class="fg" style="width:140px"><label>שם מלא / גורם</label><input id="mf-name" placeholder="שם"></div><div class="fg" style="width:85px"><label>בנק</label><input id="mf-bank" placeholder="בנק"></div><div class="fg" style="width:60px"><label>סניף</label><input id="mf-branch" placeholder="סניף"></div><div class="fg" style="width:90px"><label>מספר חשבון</label><input id="mf-acc" placeholder="חשבון"></div><div class="fg" style="width:85px"><label>סכום ₪</label><input type="number" id="mf-amount" placeholder="0" min="0"></div><div class="fg" style="width:140px"><label>גורם מאשר</label><select id="mf-approver">'+approvers.map(a=>'<option>'+a+'</option>').join('')+'</select></div><div class="fg" style="width:150px"><label>דוא"ל לאישור</label><input type="email" id="mf-email" placeholder="name@example.com"></div><div class="fg" style="width:160px"><label>הערות</label><input id="mf-notes" placeholder="הסבר קצר..."></div><button class="btn btn-p btn-sm" onclick="saveMiscPayment()">שמור</button><button class="btn btn-sm" onclick="document.getElementById(\'misc-form\').style.display=\'none\'">ביטול</button></div></div>';form.style.display='block';}
+function saveMiscPayment(){const name=document.getElementById('mf-name').value.trim();const amount=parseFloat(document.getElementById('mf-amount').value)||0;if(!name||!amount){alert('יש למלא שם וסכום');return;}const month=document.getElementById('pay-month').value;if(!DB.miscPayments)DB.miscPayments=[];logAction('תשלום נוסף הוזן',document.getElementById('misc-name')?.value||'');DB.miscPayments.push({id:'mp'+Date.now(),month,name,date:new Date().toISOString().split('T')[0],bankName:document.getElementById('mf-bank').value,branch:document.getElementById('mf-branch').value,account:document.getElementById('mf-acc').value,amount,approver:document.getElementById('mf-approver').value,notes:document.getElementById('mf-notes').value,email:(document.getElementById('mf-email')?.value||'').trim(),status:'pending'});saveDB();document.getElementById('misc-form').style.display='none';renderPayments();}
+function updateMiscStatus(id,val){const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates['misc_'+id])DB.payDoneDates['misc_'+id]=new Date().toISOString().split('T')[0];}const sl={'approved':'אושר','done':'שולם','invoice':'שולם+חשבונית','pending':'ממתין'}[val]||val;logAction('עדכון תשלום נוסף',sl+' — '+(p.name||''));saveDB();renderPayments();if(val==='done')_offerPaymentEmail([],[id]);}}
 function delMisc(id){if(!confirm('למחוק?'))return;DB.miscPayments=(DB.miscPayments||[]).filter(x=>x.id!==id);saveDB();renderPayments();}
 
 function renderPendingReceipts(){
@@ -2504,7 +2535,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal')setTimeout(_promptPaymentReminders,1000);}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
@@ -2823,15 +2854,150 @@ function toggleLPR(id){const b=document.getElementById(id);if(b)b.classList.togg
 function _setPayAvatar(av,checked){if(checked){av.style.background='#10717E';av.style.color='#fff';av.textContent='✓';}else{av.style.background=av.dataset.origBg||'';av.style.color=av.dataset.origColor||'';av.textContent=av.dataset.origText||'';}}
 function toggleAllMonthlyPay(checked){document.querySelectorAll('.mpay-cb').forEach(cb=>{cb.checked=checked;const row=cb.closest('.lect-pay-row')||cb.closest('.misc-pay-row');const av=row?row.querySelector('[data-orig-text]'):null;if(av)_setPayAvatar(av,checked);});updateMonthlySel();}
 function updateMonthlySel(){const n=document.querySelectorAll('.mpay-cb:checked').length;const el=document.getElementById('m-bulk-count');if(el)el.textContent=n?n+' נבחרו':'';}
-function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};keys.forEach(k=>{if(k.startsWith('misc_')){const p=(DB.miscPayments||[]).find(x=>x.id===k.slice(5));if(p)p.status=st;}else DB.payStatuses[k]=st;});saveDB();renderMonthly();}
+function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};const today=new Date().toISOString().split('T')[0];const payKeys=[];const miscIds=[];keys.forEach(k=>{if(k.startsWith('misc_')){const id=k.slice(5);const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status=st;if(st==='done'){miscIds.push(id);if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates['misc_'+id])DB.payDoneDates['misc_'+id]=today;}}}else{DB.payStatuses[k]=st;if(st==='done'){payKeys.push(k);if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates[k])DB.payDoneDates[k]=today;}}});saveDB();renderMonthly();if(st==='done'&&(payKeys.length||miscIds.length))_offerPaymentEmail(payKeys,miscIds);}
 function overrideF(key,field,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[key])DB.payOverrides[key]={};DB.payOverrides[key][field]=parseFloat(val)||0;saveDB();renderMonthly();}
-function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','bank':'הוזן לבנק','pending':'ממתין'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();}
+function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates[key])DB.payDoneDates[key]=new Date().toISOString().split('T')[0];}const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','bank':'הוזן לבנק','pending':'ממתין'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();if(val==='done')_offerPaymentEmail([key],[]);}
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='bank'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
 
 function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
-function addLecturer(){const n=document.getElementById('nl-n').value.trim();if(!n)return;DB.lecturers.push({id:'l'+Date.now(),name:n,track:document.getElementById('nl-t').value,rate:parseInt(document.getElementById('nl-r').value)||0,ratePriv:parseInt(document.getElementById('nl-rp').value)||0,travel:parseInt(document.getElementById('nl-tr').value)||0,management:parseInt(document.getElementById('nl-mg').value)||0,type:document.getElementById('nl-type').value,bank:document.getElementById('nl-bank').value});saveDB();renderSettings();['nl-n','nl-r','nl-rp','nl-tr','nl-mg','nl-bank'].forEach(id=>document.getElementById(id).value='');}
+function addLecturer(){const n=document.getElementById('nl-n').value.trim();if(!n)return;DB.lecturers.push({id:'l'+Date.now(),name:n,track:document.getElementById('nl-t').value,rate:parseInt(document.getElementById('nl-r').value)||0,ratePriv:parseInt(document.getElementById('nl-rp').value)||0,travel:parseInt(document.getElementById('nl-tr').value)||0,management:parseInt(document.getElementById('nl-mg').value)||0,type:document.getElementById('nl-type').value,bank:document.getElementById('nl-bank').value,email:(document.getElementById('nl-email')?.value||'').trim()});saveDB();renderSettings();['nl-n','nl-r','nl-rp','nl-tr','nl-mg','nl-bank','nl-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});}
 function addStudent(){const n=document.getElementById('ns-n').value.trim();if(!n)return;DB.students.push({id:'s'+Date.now(),name:n,instrument:document.getElementById('ns-i').value,totalQuota:parseFloat(document.getElementById('ns-q').value)||16,usedOverride:null});saveDB();renderSettings();['ns-n','ns-i','ns-q'].forEach(id=>document.getElementById(id).value='');}
 
+
+// ── Email ──
+function _sendPaymentEmail(params){
+  if(!EMAILJS_READY()){console.warn('EmailJS לא מוגדר');return;}
+  const receiptType=params.type==='freelance_vat'?'חשבונית מס/קבלה':params.type==='freelance_exempt'?'קבלה':'חשבונית / קבלה';
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const monthStr=params.month?(()=>{const d=new Date(params.month+'-01');return HEB[d.getMonth()]+' '+d.getFullYear();})():'';
+  emailjs.init(EMAILJS_PRIVATE_KEY?{publicKey:EMAILJS_PUBLIC_KEY,privateKey:EMAILJS_PRIVATE_KEY}:{publicKey:EMAILJS_PUBLIC_KEY});
+  emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,{
+    to_name:params.name,
+    to_email:params.email,
+    amount:Math.round(params.amount).toLocaleString('he-IL'),
+    description:params.description+(monthStr?' — '+monthStr:''),
+    receipt_type:receiptType
+  }).then(()=>console.log('מייל נשלח ל-'+params.email),(e)=>alert('שגיאה בשליחת מייל ל-'+params.name+': '+e.text));
+}
+
+function _offerPaymentEmail(payKeys, miscIds){
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const candidates=[];
+  (payKeys||[]).forEach(k=>{
+    const month=k.slice(0,7);
+    if(k.slice(8,12)==='adm_'){
+      const staffId=k.slice(12);
+      const s=(DB.adminStaff||[]).find(x=>x.id===staffId);
+      if(s&&s.type!=='employee'&&s.email){
+        const rows=getAdminMonthlyRows(month);
+        const r=rows.find(x=>x.id===staffId);
+        if(r){const vat=s.type==='freelance_vat'?Math.round(r.total*0.18):0;candidates.push({name:s.name,email:s.email,amount:r.total+vat,description:'תשלום',month,type:s.type});}
+      }
+    } else {
+      const lid=k.slice(8);
+      const l=getLect(lid);
+      if(l&&l.type!=='employee'&&l.email){
+        const calc=calcLect(lid,month);
+        if(calc)candidates.push({name:l.name,email:l.email,amount:calc.total,description:'תשלום',month,type:l.type});
+      }
+    }
+  });
+  (miscIds||[]).forEach(id=>{
+    const p=(DB.miscPayments||[]).find(x=>x.id===id);
+    if(p&&p.email)candidates.push({name:p.name,email:p.email,amount:p.amount,description:'תשלום',month:p.month,type:p.type||'freelance_exempt'});
+  });
+  if(!candidates.length)return;
+  const d=new Date(candidates[0].month+'-01');
+  const ms=HEB[d.getMonth()]+' '+d.getFullYear();
+  const q=candidates.length===1
+    ?`לשלוח הודעת תשלום ל${candidates[0].name} (${candidates[0].email})?`
+    :`לשלוח הודעות תשלום ל-${candidates.length} נמענים?\n${candidates.map(c=>c.name+' — '+c.email).join('\n')}`;
+  if(!confirm(q))return;
+  if(!EMAILJS_READY()){alert('EmailJS לא מוגדר עדיין — ראה הוראות הגדרה בקוד (EMAILJS_PUBLIC_KEY)');return;}
+  candidates.forEach(c=>_sendPaymentEmail(c));
+}
+
+// ── תזכורות קבלות ── (נשאל בכניסה של מנהל/ת בלבד)
+function _promptPaymentReminders(){
+  if(!EMAILJS_READY())return;
+  if(!DB.payDoneDates)return;
+  if(!DB.payReminderSent)DB.payReminderSent={};
+  const today=new Date();
+  function _daysSince(d){return Math.floor((today-new Date(d))/86400000);}
+  function _reminderNum(days){if(days>=9)return 3;if(days>=6)return 2;if(days>=3)return 1;return 0;}
+  const due=[];
+  // מרצים + צוות מנהלי
+  Object.entries(DB.payDoneDates).forEach(([key,doneDate])=>{
+    if(key.startsWith('misc_'))return;
+    const status=(DB.payStatuses||{})[key];
+    if(status!=='done')return;
+    const days=_daysSince(doneDate);
+    const dueNum=_reminderNum(days);
+    if(!dueNum)return;
+    if((DB.payReminderSent[key]||0)>=dueNum)return;
+    const month=key.slice(0,7);
+    let params=null;
+    if(key.slice(8,12)==='adm_'){
+      const sid=key.slice(12);const s=(DB.adminStaff||[]).find(x=>x.id===sid);
+      if(s&&s.type!=='employee'&&s.email){const r=(getAdminMonthlyRows(month)||[]).find(x=>x.id===sid);if(r){const vat=s.type==='freelance_vat'?Math.round(r.total*0.18):0;params={name:s.name,email:s.email,amount:r.total+vat,description:'תשלום',month,type:s.type};}}
+    }else{
+      const lid=key.slice(8);const l=getLect(lid);
+      if(l&&l.type!=='employee'&&l.email){const c=calcLect(lid,month);if(c)params={name:l.name,email:l.email,amount:c.total,description:'תשלום',month,type:l.type};}
+    }
+    if(params)due.push({key,dueNum,params});
+  });
+  // תשלומים נוספים
+  (DB.miscPayments||[]).filter(p=>p.status==='done'&&p.email).forEach(p=>{
+    const key='misc_'+p.id;
+    const doneDate=(DB.payDoneDates||{})[key];if(!doneDate)return;
+    const days=_daysSince(doneDate);const dueNum=_reminderNum(days);if(!dueNum)return;
+    if((DB.payReminderSent[key]||0)>=dueNum)return;
+    due.push({key,dueNum,params:{name:p.name,email:p.email,amount:p.amount,description:'תשלום',month:p.month,type:p.type||'freelance_exempt'}});
+  });
+  if(!due.length)return;
+  const HEB_M=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const lines=due.map(x=>{const d=new Date(x.params.month+'-01');return '• '+x.params.name+' ('+HEB_M[d.getMonth()]+' '+d.getFullYear()+') — תזכורת '+x.dueNum+'/3';}).join('\n');
+  if(!confirm('המרצים הבאים טרם שלחו קבלה:\n\n'+lines+'\n\nלשלוח להם תזכורת בדוא"ל?'))return;
+  let changed=false;
+  due.forEach(({key,dueNum,params})=>{_sendPaymentEmail(params);DB.payReminderSent[key]=dueNum;changed=true;});
+  if(changed)saveDB();
+}
+
+function renderReminderStatus(){
+  const el=document.getElementById('d-reminders');const cnt=document.getElementById('d-reminder-count');if(!el)return;
+  const today=new Date();
+  function daysSince(d){return Math.floor((today-new Date(d))/86400000);}
+  const items=[];
+  Object.entries(DB.payDoneDates||{}).forEach(([key,doneDate])=>{
+    const isMisc=key.startsWith('misc_');
+    let name='',hasEmail=false,status='';
+    if(isMisc){
+      const p=(DB.miscPayments||[]).find(x=>x.id===key.slice(5));
+      if(!p||p.status!=='done')return;
+      name=p.name;hasEmail=!!p.email;status='done';
+    }else{
+      status=(DB.payStatuses||{})[key];if(status!=='done')return;
+      const month=key.slice(0,7);
+      if(key.slice(8,12)==='adm_'){const s=(DB.adminStaff||[]).find(x=>x.id===key.slice(12));if(!s)return;name=s.name;hasEmail=!!s.email;}
+      else{const l=getLect(key.slice(8));if(!l||l.type==='employee')return;name=l.name;hasEmail=!!l.email;}
+    }
+    const days=daysSince(doneDate);
+    const sent=(DB.payReminderSent||{})[key]||0;
+    const nextDay=sent===0?3:sent===1?6:sent===2?9:null;
+    const daysToNext=nextDay?nextDay-days:null;
+    items.push({name,hasEmail,days,sent,daysToNext,done:sent>=3});
+  });
+  items.sort((a,b)=>b.days-a.days);
+  if(cnt)cnt.textContent=items.length?items.length+' מעקב':'';
+  if(!items.length){el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary)">אין תזכורות פעילות</div>';return;}
+  el.innerHTML=items.map(x=>{
+    const sentLbl=x.sent?`תזכורת ${x.sent}/3 נשלחה`:'טרם נשלחה';
+    const nextLbl=x.done?'<span style="color:#3B6D11">✓ הסתיים</span>':x.daysToNext<=0?'<span style="color:#C0392B">שלח עכשיו</span>':x.daysToNext===1?'<span style="color:#E67E22">מחר</span>':`עוד ${x.daysToNext} ימים`;
+    const noEmail=!x.hasEmail?'<span title="אין מייל" style="color:#aaa">✉✗</span>':'';
+    const bg=x.done?'background:rgba(234,243,222,0.4)':x.daysToNext<=0?'background:rgba(250,220,220,0.4)':'';
+    return`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border:0.5px solid var(--color-border-tertiary);border-radius:5px;margin-bottom:3px;font-size:11px;${bg}"><span style="font-weight:500">${x.name} ${noEmail}</span><span style="color:var(--color-text-secondary)">${sentLbl}</span><span>${nextLbl}</span></div>`;
+  }).join('');
+}
 
 // ── Boot ──
 function toggleTheme(){
