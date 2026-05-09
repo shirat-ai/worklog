@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -867,8 +867,10 @@ function renderAdminHours(){
   var staff=DB.adminStaff||[];
   var now2=new Date();
   var curM=now2.getFullYear()+'-'+String(now2.getMonth()+1).padStart(2,'0');
+  var HM=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  var staffSelEl=document.getElementById('admin-staff-sel');
+  if(staffSelEl)staffSelEl.style.display='none';
   if(sel){
-    var HM=['\u05d9\u05e0\u05d5\u05d0\u05e8','\u05e4\u05d1\u05e8\u05d5\u05d0\u05e8','\u05de\u05e8\u05e5','\u05d0\u05e4\u05e8\u05d9\u05dc','\u05de\u05d0\u05d9','\u05d9\u05d5\u05e0\u05d9','\u05d9\u05d5\u05dc\u05d9','\u05d0\u05d5\u05d2\u05d5\u05e1\u05d8','\u05e1\u05e4\u05d8\u05de\u05d1\u05e8','\u05d0\u05d5\u05e7\u05d8\u05d5\u05d1\u05e8','\u05e0\u05d5\u05d1\u05de\u05d1\u05e8','\u05d3\u05e6\u05de\u05d1\u05e8'];
     var sv=sel.value||curM;
     var nextD2=new Date(now2.getFullYear(),now2.getMonth()+1,1);
     var nextM2=nextD2.getFullYear()+'-'+String(nextD2.getMonth()+1).padStart(2,'0');
@@ -877,113 +879,118 @@ function renderAdminHours(){
     sel.innerHTML=mList.map(function(v){var d2=new Date(v+'-01');return'<option value="'+v+'"'+(v===sv?' selected':'')+'>'+HM[d2.getMonth()]+' '+d2.getFullYear()+'</option>';}).join('');
     if(!sel.value||!mList.includes(sel.value))sel.value=curM;
   }
-  var staffSel=document.getElementById('admin-staff-sel');
-  if(staffSel&&staffSel.options.length!==staff.length){var sv2=staffSel.value;staffSel.innerHTML=staff.map(function(s,i){return'<option value="'+i+'"'+(i===parseInt(sv2)?' selected':'')+'>'+s.name+'</option>';}).join('');}
   var month=sel?sel.value:'';if(!month)return;
-  if(!staff.length){el.innerHTML='<div style="padding:12px;font-size:12px;color:var(--color-text-tertiary)">\u05d9\u05e9 \u05dc\u05d4\u05d5\u05e1\u05d9\u05e3 \u05e2\u05d5\u05d1\u05d3\u05d9\u05dd \u05d1\u05d4\u05d2\u05d3\u05e8\u05d5\u05ea</div>';return;}
-  var ssList=document.getElementById('admin-staff-sel');
-  var si=ssList?parseInt(ssList.value)||0:0;if(si>=staff.length)si=0;
-  var s=staff[si];
-  var key=month+'_'+s.id;
-  var hrs=(DB.adminHours||{})[key]||{};
+  if(!staff.length){el.innerHTML='<div style="padding:12px;font-size:12px;color:var(--color-text-tertiary)">יש להוסיף עובדים בהגדרות</div>';return;}
   var parts=month.split('-');var yy=parseInt(parts[0]);var mm=parseInt(parts[1]);
   var daysInMonth=new Date(yy,mm,0).getDate();
   var DNAME=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
-
-  var aStatus=(DB.adminHoursStatus||{})[key]||'pending';
-  var approved=aStatus==='approved';
-  el.innerHTML=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;padding:5px 10px;border-radius:6px;background:var(--color-background-secondary)"><span style="font-size:11px;color:var(--color-text-secondary)">סטטוס: <strong style="color:${approved?'#10717E':'#854F0B'}">${approved?'✓ מאושר':'ממתין לאישור'}</strong></span>${approved?`<button onclick="revokeAdminHours('${s.id}','${month}')" style="font-size:11px;padding:3px 8px;border:0.5px solid var(--color-border-secondary);border-radius:5px;background:none;cursor:pointer;color:#A32D2D">ביטול אישור</button>`:`<button onclick="approveAdminHours('${s.id}','${month}')" style="font-size:11px;padding:3px 10px;border:none;border-radius:5px;background:#10717E;cursor:pointer;color:#fff">אשר דיווח</button>`}</div>`;
-
-  var overrides=(hrs._overrides)||{};
+  var TLBL={'employee':'שכיר','freelance_vat':'מורשה','freelance_exempt':'פטור'};
+  var wrap=document.createElement('div');
+  wrap.style.cssText='overflow-x:auto';
   var tbl=document.createElement('table');
-  tbl.style.cssText='width:100%;max-width:540px;border-collapse:collapse;font-size:11px';
-
-  var thead=tbl.createTHead();var hrow=thead.insertRow();
-  [['יום','90px'],['שעות עבודה',''],['שעות','56px'],['ידנית','60px']].forEach(([t,w])=>{
+  tbl.style.cssText='border-collapse:collapse;font-size:11px;min-width:'+(130+staff.length*130)+'px';
+  var thead=tbl.createTHead();
+  var hr1=thead.insertRow();
+  var th0=document.createElement('th');
+  th0.innerHTML='<div style="font-size:13px;font-weight:700;color:var(--color-text-primary)">'+HM[mm-1]+' '+yy+'</div>';
+  th0.style.cssText='padding:10px 14px;text-align:right;border-bottom:2px solid var(--color-border-secondary);background:var(--color-background-secondary);min-width:110px;vertical-align:bottom';
+  hr1.appendChild(th0);
+  staff.forEach(function(s){
+    var key=month+'_'+s.id;
+    var approved=(DB.adminHoursStatus||{})[key]==='approved';
     var th=document.createElement('th');
-    th.style.cssText=`padding:4px 6px;text-align:right;border-bottom:0.5px solid var(--color-border-secondary);font-size:11px;background:var(--color-background-secondary)${w?';width:'+w:''}`;
-    th.textContent=t;hrow.appendChild(th);
+    th.style.cssText='padding:10px 10px;text-align:center;border-bottom:2px solid var(--color-border-secondary);background:var(--color-background-secondary);min-width:130px;border-right:0.5px solid var(--color-border-tertiary)';
+    th.innerHTML='<div style="font-size:15px;font-weight:800;color:'+(approved?'#10717E':'var(--color-text-primary)')+'">'+s.name+'</div>'
+      +'<div style="font-size:10px;color:var(--color-text-secondary);margin-top:2px">'+(TLBL[s.type]||s.type)+' | &#8362;'+s.rate+'/&#1513;\'</div>'
+      +'<div style="margin-top:6px">'+(approved
+        ?'<button onclick="revokeAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:10px;padding:2px 8px;border:0.5px solid #A32D2D;border-radius:4px;background:none;cursor:pointer;color:#A32D2D">ביטול אישור</button>'
+        :'<button onclick="approveAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:10px;padding:2px 8px;border:none;border-radius:4px;background:#10717E;cursor:pointer;color:#fff">✓ אשר דיווח</button>'
+      )+'</div>';
+    hr1.appendChild(th);
   });
-  var tbody=tbl.createTBody();var totalCalcHrs=0;
-
-  function mkTS(val,onChange){
-    var ts=document.createElement('select');
-    ts.style.cssText='font-size:11px;padding:1px 2px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:var(--color-background-primary);color:var(--color-text-primary);max-width:66px';
-    ts.innerHTML='<option value="">—</option>'+(typeof TIMES!=='undefined'?TIMES:[]).map(t=>`<option value="${t}"${t===val?' selected':''}>${t}</option>`).join('');
-    ts.onchange=onChange;return ts;
-  }
-
+  var tbody=tbl.createTBody();
+  var totCalc=staff.map(function(){return 0;});
   for(var d=1;d<=daysInMonth;d++){
     var ds=month+'-'+String(d).padStart(2,'0');
     var dn=new Date(ds+'T12:00:00').getDay();
     var isSat=dn===6,isFri=dn===5;
     var row=tbody.insertRow();
     row.style.borderBottom='0.5px solid var(--color-border-tertiary)';
-    if(isSat)row.style.background='rgba(247,193,193,0.15)';
-    else if(isFri)row.style.background='rgba(253,246,227,0.25)';
-
-    var c0=row.insertCell();
-    c0.style.cssText='padding:4px 6px;font-size:11px;font-weight:500;white-space:nowrap;color:'+(isSat?'#A32D2D':isFri?'#854F0B':'var(--color-text-primary)');
-    c0.textContent=d+'.'+mm+' '+DNAME[dn];
-
-    if(isSat){var sk=row.insertCell();sk.colSpan=3;sk.style.cssText='text-align:center;color:#A32D2D;font-size:11px;padding:4px 6px';sk.textContent='שבת';continue;}
-
-    var daySlots=_normAdminDay(hrs[d])||[];
-    var sl0=daySlots[0]||{start:'',end:''};
-    var sl1=daySlots[1]||null;
-    var calcH=calcSlotHrs(sl0.start||'',sl0.end||'')+(sl1?calcSlotHrs(sl1.start||'',sl1.end||''):0);
-    var ovD=overrides[d]!==undefined?parseFloat(overrides[d]):null;
-    totalCalcHrs+=(ovD!==null?ovD:calcH);
-
-    var cShifts=row.insertCell();cShifts.style.cssText='padding:2px 4px';
-    (function(d2,s0,s1,mo,sid){
-      var r0=document.createElement('div');
-      r0.style.cssText='display:flex;align-items:center;gap:3px'+(s1?';margin-bottom:3px':'');
-      r0.appendChild(mkTS(s0.start,function(){updateAdminSlotNew(sid,mo,d2,0,'start',this.value);}));
-      var dash=document.createElement('span');dash.textContent='–';dash.style.cssText='color:var(--color-text-tertiary);padding:0 1px';
-      r0.appendChild(dash);
-      r0.appendChild(mkTS(s0.end,function(){updateAdminSlotNew(sid,mo,d2,0,'end',this.value);}));
-      if(s0.start||s0.end){var x0=document.createElement('button');x0.textContent='×';x0.title='מחק משמרת';x0.style.cssText='font-size:11px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1';x0.onclick=function(){clearAdminSlot(sid,mo,d2,0);};r0.appendChild(x0);}
-      cShifts.appendChild(r0);
-      if(s1){
-        var r1=document.createElement('div');r1.style.cssText='display:flex;align-items:center;gap:3px';
-        r1.appendChild(mkTS(s1.start,function(){updateAdminSlotNew(sid,mo,d2,1,'start',this.value);}));
-        var dash1=document.createElement('span');dash1.textContent='–';dash1.style.cssText='color:var(--color-text-tertiary);padding:0 1px';
-        r1.appendChild(dash1);
-        r1.appendChild(mkTS(s1.end,function(){updateAdminSlotNew(sid,mo,d2,1,'end',this.value);}));
-        var x1=document.createElement('button');x1.textContent='×';x1.title='מחק משמרת';x1.style.cssText='font-size:11px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 2px;line-height:1';x1.onclick=function(){clearAdminSlot(sid,mo,d2,1);};r1.appendChild(x1);
-        cShifts.appendChild(r1);
-      } else if(s0.start||s0.end){
-        var addBtn=document.createElement('button');addBtn.textContent='+ משמרת';addBtn.style.cssText='font-size:10px;color:#10717E;background:none;border:none;cursor:pointer;padding:1px 0;display:block';addBtn.onclick=function(){addAdminSlot(sid,mo,d2);};cShifts.appendChild(addBtn);
-      }
-    })(d,sl0,sl1,month,s.id);
-
-    var cH=row.insertCell();
-    cH.style.cssText='padding:4px 6px;text-align:center;font-size:11px;font-weight:'+(calcH>0&&ovD===null?'500':'400')+';color:'+(ovD!==null?'var(--color-text-tertiary)':calcH>0?'#10717E':'var(--color-text-tertiary)');
-    cH.textContent=calcH>0?calcH.toFixed(2).replace(/\.?0+$/,''):'—';
-
-    var cOv=row.insertCell();cOv.style.cssText='padding:2px 4px;text-align:center';
-    var ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='—';ovInp.value=ovD!==null?ovD:'';
-    ovInp.style.cssText='width:52px;font-size:11px;padding:2px 4px;border:0.5px solid '+(ovD!==null?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(ovD!==null?'#10717E':'var(--color-text-primary)')+';text-align:center';
-    (function(d2,sid,mo){ovInp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};})(d,s.id,month);
-    cOv.appendChild(ovInp);
+    if(isSat)row.style.background='rgba(247,193,193,0.12)';
+    else if(isFri)row.style.background='rgba(253,246,227,0.18)';
+    var dc=row.insertCell();
+    dc.style.cssText='padding:4px 10px;font-size:11px;font-weight:500;white-space:nowrap;color:'+(isSat?'#A32D2D':isFri?'#854F0B':'var(--color-text-primary)');
+    dc.textContent=d+'.'+mm+' '+DNAME[dn];
+    if(isSat){
+      var sk=row.insertCell();sk.colSpan=staff.length;
+      sk.style.cssText='text-align:center;color:#A32D2D;font-size:10px;padding:3px;border-right:0.5px solid var(--color-border-tertiary)';
+      sk.textContent='שבת';continue;
+    }
+    staff.forEach(function(s,si){
+      var key=month+'_'+s.id;
+      var hrs=(DB.adminHours||{})[key]||{};
+      var overrides=hrs._overrides||{};
+      var slots=_normAdminDay(hrs[d])||[];
+      var calcH=0;slots.forEach(function(sl){calcH+=calcSlotHrs(sl.start||'',sl.end||'');});
+      var ovD=overrides[d]!==undefined?parseFloat(overrides[d]):null;
+      totCalc[si]+=(ovD!==null?ovD:calcH);
+      var approved=(DB.adminHoursStatus||{})[key]==='approved';
+      var tc=row.insertCell();
+      tc.style.cssText='padding:2px 6px;text-align:center;border-right:0.5px solid var(--color-border-tertiary)';
+      var inp=document.createElement('input');
+      inp.type='number';inp.min='0';inp.step='0.25';
+      inp.value=ovD!==null?ovD:'';
+      inp.placeholder=calcH>0?String(calcH):'';
+      inp.disabled=approved;
+      inp.style.cssText='width:68px;font-size:12px;padding:3px 4px;border:0.5px solid '+(ovD!==null?'#10717E':approved?'transparent':'var(--color-border-secondary)')+';border-radius:4px;background:'+(approved?'transparent':'var(--color-background-primary)')+';color:'+(ovD!==null?'#10717E':'var(--color-text-primary)')+';text-align:center'+(approved?';opacity:0.7':'');
+      (function(d2,sid,mo){inp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};})(d,s.id,month);
+      tc.appendChild(inp);
+    });
   }
-
-  var srow=tbody.insertRow();srow.style.background='rgba(16,113,126,0.06)';
-  var sc0=srow.insertCell();sc0.colSpan=2;sc0.style.cssText='padding:6px 8px;font-size:12px;font-weight:500;color:#10717E';sc0.textContent='סה"כ שעות — '+s.name;
-  var sc1=srow.insertCell();sc1.style.cssText='padding:6px 6px;text-align:center;font-size:12px;font-weight:500;color:'+(hrs._totalOverride!==undefined?'var(--color-text-tertiary)':'#10717E');sc1.textContent=totalCalcHrs.toFixed(2).replace(/\.?0+$/,'')||'0';
-  var sc2=srow.insertCell();sc2.style.cssText='padding:6px 4px;text-align:center';
-  var totInp=document.createElement('input');totInp.type='number';totInp.min='0';totInp.step='0.25';totInp.placeholder='—';totInp.value=hrs._totalOverride!==undefined?hrs._totalOverride:'';
-  totInp.style.cssText='width:56px;font-size:12px;padding:3px 6px;border:0.5px solid '+(hrs._totalOverride!==undefined?'#10717E':'var(--color-border-secondary)')+';border-radius:4px;background:var(--color-background-primary);color:'+(hrs._totalOverride!==undefined?'#10717E':'var(--color-text-primary)')+';text-align:center;font-weight:500';
-  totInp.onchange=function(){updateAdminTotalOverride(s.id,month,this.value!==''?this.value:null);};
-  sc2.appendChild(totInp);
-
-  var prow=tbody.insertRow();prow.style.background='rgba(16,113,126,0.04)';
-  var pc0=prow.insertCell();pc0.colSpan=2;pc0.style.cssText='padding:4px 8px;font-size:11px;color:var(--color-text-secondary)';pc0.textContent='לתשלום ('+s.rate+'₪/ש\')';
-  var pc1=prow.insertCell();pc1.colSpan=2;pc1.style.cssText='padding:4px 8px;text-align:center;font-size:13px;font-weight:600;color:#10717E';
-  var effHrs=hrs._totalOverride!==undefined?parseFloat(hrs._totalOverride):totalCalcHrs;
-  pc1.textContent='₪'+Math.round(effHrs*(s.rate||0)).toLocaleString('he-IL');
-  el.appendChild(tbl);
+  var trow=tbody.insertRow();
+  trow.style.cssText='background:rgba(16,113,126,0.07);border-top:2px solid var(--color-border-secondary)';
+  var tc0=trow.insertCell();
+  tc0.style.cssText='padding:8px 10px;font-size:12px;font-weight:700;color:#10717E';
+  tc0.textContent='סה"כ שעות';
+  staff.forEach(function(s,si){
+    var key=month+'_'+s.id;
+    var hrs=(DB.adminHours||{})[key]||{};
+    var approved=(DB.adminHoursStatus||{})[key]==='approved';
+    var hasOvr=hrs._totalOverride!==undefined;
+    var tc=trow.insertCell();
+    tc.style.cssText='padding:6px 8px;text-align:center;border-right:0.5px solid var(--color-border-tertiary)';
+    var compDiv=document.createElement('div');
+    compDiv.style.cssText='font-size:13px;font-weight:700;color:'+(hasOvr?'var(--color-text-tertiary)':'#10717E')+(hasOvr?';text-decoration:line-through':'');
+    compDiv.textContent=totCalc[si]||'0';
+    tc.appendChild(compDiv);
+    var totInp=document.createElement('input');
+    totInp.type='number';totInp.min='0';totInp.step='0.25';totInp.placeholder='עקוף';
+    totInp.value=hasOvr?hrs._totalOverride:'';
+    totInp.disabled=approved;
+    totInp.title='עקוף סה"כ ידנית — מחליף את כל החישוב!';
+    totInp.style.cssText='width:72px;font-size:12px;padding:3px 5px;border:0.5px solid '+(hasOvr?'#C0392B':'var(--color-border-secondary)')+';border-radius:4px;background:'+(hasOvr?'rgba(250,220,220,0.3)':'var(--color-background-primary)')+';color:'+(hasOvr?'#C0392B':'var(--color-text-primary)')+';text-align:center;font-weight:600;margin-top:3px'+(approved?';opacity:0.7':'');
+    (function(sid,mo){totInp.onchange=function(){updateAdminTotalOverride(sid,mo,this.value!==''?this.value:null);};})(s.id,month);
+    tc.appendChild(totInp);
+    if(hasOvr){var w=document.createElement('div');w.style.cssText='font-size:9px;color:#C0392B;margin-top:2px;font-weight:600';w.textContent='⚠ עקוף ידני';tc.appendChild(w);}
+  });
+  var prow=tbody.insertRow();
+  prow.style.background='rgba(16,113,126,0.04)';
+  var pc0=prow.insertCell();
+  pc0.style.cssText='padding:5px 10px;font-size:11px;font-weight:500;color:var(--color-text-secondary)';
+  pc0.textContent='לתשלום';
+  staff.forEach(function(s,si){
+    var key=month+'_'+s.id;
+    var hrs=(DB.adminHours||{})[key]||{};
+    var eff=hrs._totalOverride!==undefined?parseFloat(hrs._totalOverride):totCalc[si];
+    var vat=s.type==='freelance_vat'?Math.round(eff*(s.rate||0)*0.18):0;
+    var total=Math.round(eff*(s.rate||0))+vat;
+    var pc=prow.insertCell();
+    pc.style.cssText='padding:5px 8px;text-align:center;font-size:13px;font-weight:700;color:#10717E;border-right:0.5px solid var(--color-border-tertiary)';
+    pc.textContent='&#8362;'+total.toLocaleString('he-IL');
+  });
+  el.innerHTML='';
+  wrap.appendChild(tbl);
+  el.appendChild(wrap);
 }
 
 
@@ -1663,7 +1670,7 @@ function loadDB() {
 function _applySnapshot(p) {
   if (!p) return;
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','ganttPlanned','lockedMonths','payDoneDates','payReminderSent']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent']
     .forEach(k => { if (p[k] !== undefined) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
@@ -2792,8 +2799,19 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
     container.appendChild(hdr);
     pmts2.forEach(p=>{
       const div=document.createElement('div');
-      const brd=p.status==='done'||p.status==='invoice'?'border-color:#3B6D11;background:rgba(234,243,222,0.35)':p.status==='approved'?'border-color:#C0DD97':'border-color:#F7C1C1';
-      div.innerHTML=`<div class="misc-pay-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:5px;${brd}"><div style="display:flex;align-items:center;gap:10px"><div data-orig-bg="var(--color-background-secondary)" data-orig-color="var(--color-text-secondary)" data-orig-text="${p.name.charAt(0)}" style="width:34px;height:34px;border-radius:50%;background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:var(--color-text-secondary);cursor:pointer;flex-shrink:0" title="לחץ לבחירה">${p.name.charAt(0)}</div><div><span style="font-size:12px;font-weight:500">${p.name}</span>${p.approver?'<span style="font-size:11px;color:var(--color-text-tertiary)"> | '+p.approver+'</span>':''}</div></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:500;color:#10717E">${fmtM(p.amount)}</span><select style="font-size:11px;padding:2px 4px;width:130px" onchange="updateMiscStatus('${p.id}',this.value)"><option value="pending"${p.status==='pending'?' selected':''}>ממתין לאישור</option><option value="approved"${p.status==='approved'?' selected':''}>אושר</option><option value="done"${p.status==='done'?' selected':''}>שולם</option><option value="invoice"${p.status==='invoice'?' selected':''}>שולם + חשבונית / קבלה</option></select></div></div>`;
+      const isDone=p.status==='done'||p.status==='invoice';
+      const isApproved=p.status==='approved';
+      const brd=isDone?'border-color:#3B6D11;background:rgba(234,243,222,0.35)':isApproved?'border-color:#C0DD97':'border-color:#F7C1C1';
+      const avBg=isDone?'#EAF3DE':isApproved?'rgba(225,245,238,0.6)':'#FCEBEB';
+      const avClr=isDone?'#3B6D11':isApproved?'#085041':'#A32D2D';
+      const btns=p.status==='pending'
+        ?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="updateMiscStatus('${p.id}','approved')">✓ אשר</button>`
+        :p.status==='approved'
+        ?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="updateMiscStatus('${p.id}','done')">✓ שולם</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="updateMiscStatus('${p.id}','pending')">× בטל</button>`
+        :p.status==='done'
+        ?`<span class="badge b-ok" style="font-size:10px">שולם ✓</span><button class="btn btn-sm" style="font-size:10px;padding:2px 8px;background:#E8F4FC;color:#085041;border-color:#A0CDE8" onclick="updateMiscStatus('${p.id}','invoice')">התקבלה חשבונית / קבלה ✓</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="updateMiscStatus('${p.id}','pending')">× בטל</button>`
+        :`<span class="badge b-ok" style="font-size:10px">שולם, התקבלה חשבונית / קבלה — הסתיים טיפול ✓</span><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="updateMiscStatus('${p.id}','done')">× בטל</button>`;
+      div.innerHTML=`<div class="misc-pay-row" style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:5px;${brd}"><div style="display:flex;align-items:center;gap:10px"><div data-orig-bg="${avBg}" data-orig-color="${avClr}" data-orig-text="${p.name.charAt(0)}" style="width:34px;height:34px;border-radius:50%;background:${avBg};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:${avClr};cursor:pointer;flex-shrink:0" title="לחץ לבחירה">${p.name.charAt(0)}</div><div><span style="font-size:12px;font-weight:500">${p.name}</span>${p.approver?'<span style="font-size:11px;color:var(--color-text-tertiary)"> | '+p.approver+'</span>':''}</div></div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:500;color:#10717E">${fmtM(p.amount)}</span><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${btns}</div></div></div>`;
       const miscRow=div.querySelector('.misc-pay-row');
       if(miscRow){const av=miscRow.querySelector('[data-orig-text]');if(av){const cb=document.createElement('input');cb.type='checkbox';cb.className='mpay-cb';cb.dataset.key='misc_'+p.id;cb.style.display='none';av.addEventListener('click',e=>{e.stopPropagation();cb.checked=!cb.checked;_setPayAvatar(av,cb.checked);updateMonthlySel();});miscRow.appendChild(cb);}}
       container.appendChild(div);
