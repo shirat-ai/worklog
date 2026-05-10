@@ -1434,7 +1434,7 @@ function exportAdminExcel(month){
     return[r.name,code,b.branch||'',b.account||'','תשלום לספק',r.total];
   });
   if(!rows.length){alert('אין שעות מוזנות לחודש זה');return;}
-  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'צוות_מנהלי_'+month+'.xls');
+  _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'צוות_מנהלי_'+month+'.xls');
 }
 // ═══════════════════════════════════════════════
 //  גאנט שנתי
@@ -1880,7 +1880,7 @@ function loadDB() {
 function _applySnapshot(p) {
   if (!p) return;
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent']
     .forEach(k => { if (p[k] !== undefined) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
@@ -2203,11 +2203,14 @@ function renderPendingReceipts(){
   if(cnt)cnt.textContent=items.length?items.length+' ממתינים':'';
   if(!items.length){el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary)">הכל תקין ✓</div>';return;}
   el.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">'+
-    items.map(x=>`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border:0.5px solid var(--color-border-tertiary);border-radius:5px;gap:6px">
-      <div style="min-width:0"><div style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.label}</div>
-      <div style="font-size:10px;color:var(--color-text-tertiary)">${x.month.replace('-','/')}${x.amount?' · ₪'+x.amount.toLocaleString('he-IL'):''}</div></div>
+    items.map(x=>{
+      const emailSentDate=(DB.emailSent||{})[(x.month||'')+'_'+(x.label||'')];
+      const envelope=emailSentDate?`<span title="תזכורת נשלחה ${emailSentDate}" style="font-size:12px;opacity:0.7;flex-shrink:0">✉</span>`:'';
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border:0.5px solid var(--color-border-tertiary);border-radius:5px;gap:6px">
+      <div style="min-width:0;display:flex;align-items:center;gap:4px">${envelope}<div><div style="font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${x.label}</div>
+      <div style="font-size:10px;color:var(--color-text-tertiary)">${x.month.replace('-','/')}${x.amount?' · ₪'+x.amount.toLocaleString('he-IL'):''}</div></div></div>
       <button onclick="markReceiptReceived('${x.type}','${x.id||''}','${x.key||''}')" style="flex-shrink:0;font-size:10px;padding:2px 6px;border:0.5px solid #C0DD97;border-radius:4px;background:#EAF3DE;color:#3B6D11;cursor:pointer;white-space:nowrap">✓ התקבלה</button>
-    </div>`).join('')+
+    </div>`;}).join('')+
   '</div>';
 }
 function markReceiptReceived(type,id,key){
@@ -2400,11 +2403,29 @@ function renderActivityLog(){
   const el=document.getElementById('d-activity-log');if(!el)return;
   const log=(DB.activityLog||[]).slice(0,20);
   if(!log.length){el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary)">אין פעילות עדיין</div>';return;}
+  const COLOR_MAP={'אישור יום לימודים':'#3B6D11','החזרה לרכז':'#854F0B','אישור שיעור כלי':'#3B6D11','ביטול אישור יום':'#A32D2D','עדכון סטטוס תשלום':'#10717E','שליחת תזכורת מייל':'#085041'};
   el.innerHTML=log.map(e=>{
     const dt=new Date(e.ts).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
-    const color={'אישור יום לימודים':'#3B6D11','החזרה לרכז':'#854F0B','אישור שיעור כלי':'#3B6D11','ביטול אישור יום':'#A32D2D','עדכון סטטוס תשלום':'#10717E'}[e.action]||'var(--color-text-secondary)';
-    return`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary)"><div><span style="font-size:11px;font-weight:500;color:${color}">${e.action}</span><span style="font-size:11px;color:var(--color-text-secondary);margin-right:6px"> | ${e.details||''}</span><span style="font-size:10px;color:var(--color-text-tertiary)">(${e.roleName||''})</span></div><span style="font-size:10px;color:var(--color-text-tertiary);white-space:nowrap">${dt}</span></div>`;
+    const color=COLOR_MAP[e.action]||'var(--color-text-secondary)';
+    const icon=e.action==='שליחת תזכורת מייל'?'✉ ':'';
+    return`<div style="display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;border-bottom:0.5px solid var(--color-border-tertiary)"><div><span style="font-size:11px;font-weight:500;color:${color}">${icon}${e.action}</span><span style="font-size:11px;color:var(--color-text-secondary);margin-right:6px"> | ${e.details||''}</span><span style="font-size:10px;color:var(--color-text-tertiary)">(${e.roleName||''})</span></div><span style="font-size:10px;color:var(--color-text-tertiary);white-space:nowrap">${dt}</span></div>`;
+  }).join('')+`<div style="margin-top:6px;text-align:left"><button onclick="showFullLog()" style="font-size:10px;color:#10717E;background:none;border:none;cursor:pointer;padding:2px 0;text-decoration:underline">הצג לוג חודש אחרון ›</button></div>`;
+}
+function showFullLog(){
+  const cutoff=new Date();cutoff.setMonth(cutoff.getMonth()-1);
+  const log=(DB.activityLog||[]).filter(e=>new Date(e.ts)>=cutoff);
+  const COLOR_MAP={'אישור יום לימודים':'#3B6D11','החזרה לרכז':'#854F0B','אישור שיעור כלי':'#3B6D11','ביטול אישור יום':'#A32D2D','עדכון סטטוס תשלום':'#10717E','שליחת תזכורת מייל':'#085041'};
+  const rows=log.map(e=>{
+    const dt=new Date(e.ts).toLocaleString('he-IL',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+    const color=COLOR_MAP[e.action]||'var(--color-text-secondary)';
+    const icon=e.action==='שליחת תזכורת מייל'?'✉ ':'';
+    return`<tr style="border-bottom:0.5px solid var(--color-border-tertiary)"><td style="padding:4px 8px;font-size:11px;white-space:nowrap;color:var(--color-text-tertiary)">${dt}</td><td style="padding:4px 8px;font-size:11px;font-weight:500;color:${color};white-space:nowrap">${icon}${e.action}</td><td style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary)">${e.details||''}</td><td style="padding:4px 8px;font-size:10px;color:var(--color-text-tertiary)">${e.roleName||''}</td></tr>`;
   }).join('');
+  const ov=document.createElement('div');
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;direction:rtl';
+  ov.innerHTML=`<div style="background:var(--color-background-primary);border-radius:12px;padding:20px;max-width:700px;width:95%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span style="font-size:14px;font-weight:600">לוג פעילות — חודש אחרון (${log.length} פעולות)</span><button onclick="this.closest('div[style*=fixed]').remove()" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--color-text-secondary)">×</button></div><div style="overflow-y:auto;flex:1"><table style="width:100%;border-collapse:collapse"><thead><tr style="border-bottom:1px solid var(--color-border-secondary)"><th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:right">תאריך</th><th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:right">פעולה</th><th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:right">פרטים</th><th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:right">תפקיד</th></tr></thead><tbody>${rows||'<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--color-text-tertiary)">אין פעילות בחודש האחרון</td></tr>'}</tbody></table></div></div>`;
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+  document.body.appendChild(ov);
 }
 
 function editPayNote(key){
@@ -2509,19 +2530,19 @@ function exportPaymentsExcel(month){
     rows.push([r.name,code,b.branch||'',b.account||'','תשלום לספק',Math.round(r.total+vat)]);
   });
   if(!rows.length){alert('אין תשלומים מאושרים לייצוא');return;}
-  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_'+month+'.xls');
+  _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_'+month+'.xls');
 }
 function exportMiscExcel(month){
   if(!month){month=document.getElementById('pay-month')?.value||document.getElementById('m-month')?.value;if(!month){alert('בחר חודש');return;}}
   const pmts=(DB.miscPayments||[]).filter(p=>p.month===month&&['approved','done','received','invoice'].includes(p.status));
   if(!pmts.length){alert('אין תשלומים נוספים מאושרים לייצוא');return;}
   const rows=pmts.map(p=>{const b=parseBankStr(p.bankName||'');const code=b.bankCode||getBankCode(b.bankName||'');return[p.name,code,p.branch||'',p.account||'','תשלום לספק',Math.round(p.amount)];});
-  _downloadXls([['שם המוטב','קוד בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_נוספים_'+month+'.xls');
+  _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_נוספים_'+month+'.xls');
 }
 function _downloadXls(data,filename){
   let xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="פירוט"><Table>';
-  // עמודות: שם(150) | שם בנק(80) | קוד בנק(50) | סניף(60) | חשבון(110) | מהות(170) | סכום(80)
-  xml+='<Column ss:Width="150"/><Column ss:Width="80"/><Column ss:Width="50"/><Column ss:Width="60"/><Column ss:Width="110"/><Column ss:Width="170"/><Column ss:Width="80"/>';
+  // עמודות: שם המוטב(150) | בנק(60) | מספר סניף(70) | מספר חשבון(110) | מהות העברה(150) | סכום ₪(80)
+  xml+='<Column ss:Width="150"/><Column ss:Width="60"/><Column ss:Width="70"/><Column ss:Width="110"/><Column ss:Width="150"/><Column ss:Width="80"/>';
   data.forEach(row=>{
     xml+='<Row>';
     row.forEach(cell=>{
@@ -3104,7 +3125,14 @@ function _sendPaymentEmail(params){
     amount:Math.round(params.amount).toLocaleString('he-IL'),
     description:params.description+(monthStr?' — '+monthStr:''),
     receipt_type:receiptType
-  }).then(()=>console.log('מייל נשלח ל-'+params.email),(e)=>alert('שגיאה בשליחת מייל ל-'+params.name+': '+e.text));
+  }).then(()=>{
+    console.log('מייל נשלח ל-'+params.email);
+    logAction('שליחת תזכורת מייל',params.name+(params.month?' — '+params.month:''));
+    if(!DB.emailSent)DB.emailSent={};
+    const ekey=(params.month||'')+'_'+(params.name||'');
+    DB.emailSent[ekey]=new Date().toISOString().split('T')[0];
+    saveDB();renderPendingReceipts();
+  },(e)=>alert('שגיאה בשליחת מייל ל-'+params.name+': '+e.text));
 }
 
 function _offerPaymentEmail(payKeys, miscIds){
