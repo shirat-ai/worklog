@@ -719,7 +719,7 @@ function showLecturerHistory(lid, curMonth){
       </table>
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-start">
-      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button> <button onclick="exportLecturerPDF('${lid}','${curMonth||''}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>
+      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button> <button onclick="exportLecturerPDF('${lid}','${curMonth||''}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>${l.email&&curMonth?` <button onclick="emailLecturerSummary('${lid}','${curMonth}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #5A7FA8;border-radius:6px;background:#5A7FA8;color:#fff;cursor:pointer">📧 שלח במייל</button>`:''}
     </div>
   </div>`;
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
@@ -1926,6 +1926,103 @@ function exportLecturerPDF(lid, month){
   w.document.close();
   w.focus();
   setTimeout(()=>w.print(),500);
+}
+
+// ── שליחת סיכום חודשי במייל ──
+// הערה: כדי שה-HTML יופיע במייל, יש להוסיף בתבנית EmailJS את השדה: {{{message_html}}}
+function emailLecturerSummary(lid, month){
+  if(!EMAILJS_READY()){alert('EmailJS לא מוגדר — ראה הוראות הגדרה בקוד (EMAILJS_PUBLIC_KEY)');return;}
+  const l=getLect(lid);if(!l)return;
+  if(!l.email){alert('לא הוגדרה כתובת מייל עבור '+l.name+'\nניתן להוסיף מייל בהגדרות מרצים.');return;}
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const DOW=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const md=new Date(month+'-01');
+  const monthLabel=HEB[md.getMonth()]+' '+md.getFullYear();
+  const calc=calcLect(lid,month);if(!calc){alert('אין נתונים עבור '+monthLabel);return;}
+  const st=(DB.payStatuses||{})[month+'_'+lid]||'pending';
+  const stLbl={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית'}[st]||st;
+  if(!confirm('לשלוח סיכום '+monthLabel+' ל:\n'+l.name+'\n'+l.email))return;
+
+  // Teaching days
+  const teachDays=(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved'&&
+    (d.groups||[]).some(g=>g.rows.some(r=>r.lectId===lid))).sort((a,b)=>a.date.localeCompare(b.date));
+  let totalTeachHrs=0;
+  const dayRowsHtml=teachDays.map(d=>{
+    const dateObj=new Date(d.date+'T12:00:00');
+    const dateStr=String(dateObj.getDate()).padStart(2,'0')+'.'+String(dateObj.getMonth()+1).padStart(2,'0');
+    const dowStr=DOW[dateObj.getDay()];
+    return (d.groups||[]).flatMap(g=>g.rows.filter(r=>r.lectId===lid).map(r=>{
+      const hrs=r.payHrs||r.pay||0;totalTeachHrs+=hrs;
+      return`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">${dateStr} ${dowStr}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${g.name}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${r.courseName||'—'}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center">${r.start||'—'}${r.end?' – '+r.end:''}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center;font-weight:500">${fmt(hrs)}</td></tr>`;
+    })).join('');
+  }).join('');
+  totalTeachHrs=Math.round(totalTeachHrs*100)/100;
+
+  // Private lessons
+  const privLessons=(DB.privateLessons||[]).filter(pl=>pl.lectId===lid&&pl.date.startsWith(month)&&pl.privApproval==='approved').sort((a,b)=>a.date.localeCompare(b.date));
+  let totalPrivHrs=0;
+  const privRowsHtml=privLessons.map(pl=>{
+    const dateObj=new Date(pl.date+'T12:00:00');
+    const dateStr=String(dateObj.getDate()).padStart(2,'0')+'.'+String(dateObj.getMonth()+1).padStart(2,'0');
+    const dowStr=DOW[dateObj.getDay()];
+    const s=getStudent(pl.studentId);const acad=toAcad(pl.duration);totalPrivHrs+=acad;
+    return`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">${dateStr} ${dowStr}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${s?s.name:'—'}</td><td style="padding:5px 10px;border-bottom:1px solid #eee">${s?s.instrument:'—'}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center">${pl.time||'—'}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:center;font-weight:500">${fmt(acad)}</td></tr>`;
+  }).join('');
+  totalPrivHrs=Math.round(totalPrivHrs*100)/100;
+
+  const privSection=privRowsHtml?`
+    <h3 style="color:#10717E;font-size:14px;margin:20px 0 6px">שיעורי כלי פרטניים</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:#10717E;color:#fff"><th style="padding:6px 10px;text-align:right">תאריך</th><th style="padding:6px 10px;text-align:right">תלמיד</th><th style="padding:6px 10px;text-align:right">כלי</th><th style="padding:6px 10px;text-align:center">שעה</th><th style="padding:6px 10px;text-align:center">ש"ה</th></tr>
+      ${privRowsHtml}
+      <tr style="background:#E8F5F3;font-weight:bold"><td colspan="4" style="padding:6px 10px">סה"כ שיעורי כלי</td><td style="padding:6px 10px;text-align:center">${fmt(totalPrivHrs)}</td></tr>
+    </table>`:'';
+
+  // Payment summary rows
+  let sumRows='';
+  sumRows+=`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">שעות הוראה — ${fmt(calc.hrs)} ש"ה × ₪${calc.rate}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:left;font-weight:500">₪${Math.round(calc.base).toLocaleString('he-IL')}</td></tr>`;
+  if(calc.privHrs>0)sumRows+=`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">שיעורי כלי — ${fmt(calc.privHrs)} ש"ה × ₪${calc.ratePriv||0}</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:left;font-weight:500">₪${Math.round(calc.privBase||0).toLocaleString('he-IL')}</td></tr>`;
+  if(calc.management>0)sumRows+=`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">תוספת מנהלה</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:left;font-weight:500">₪${Math.round(calc.management).toLocaleString('he-IL')}</td></tr>`;
+  if(calc.travel>0)sumRows+=`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">נסיעות</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:left;font-weight:500">₪${Math.round(calc.travel).toLocaleString('he-IL')}</td></tr>`;
+  if(calc.vat>0)sumRows+=`<tr><td style="padding:5px 10px;border-bottom:1px solid #eee">מע"מ (18%)</td><td style="padding:5px 10px;border-bottom:1px solid #eee;text-align:left;font-weight:500">₪${Math.round(calc.vat).toLocaleString('he-IL')}</td></tr>`;
+
+  const msgHtml=`<div style="font-family:Arial,sans-serif;direction:rtl;color:#222;font-size:13px;max-width:600px">
+  <div style="background:#10717E;color:#fff;padding:16px 20px;border-radius:8px 8px 0 0">
+    <div style="font-size:18px;font-weight:bold">שירת הלויים — בית הספר הגבוה למוסיקה</div>
+    <div style="font-size:13px;opacity:0.85;margin-top:2px">סיכום שעות עבודה — ${monthLabel}</div>
+  </div>
+  <div style="border:1px solid #C5E8E3;border-top:none;padding:16px 20px;border-radius:0 0 8px 8px">
+    <p style="margin:0 0 16px">שלום ${l.name},</p>
+    <p style="margin:0 0 16px">להלן סיכום שעות עבודתך לחודש <strong>${monthLabel}</strong>.</p>
+    ${dayRowsHtml?`<h3 style="color:#10717E;font-size:14px;margin:0 0 6px">ימי הוראה</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      <tr style="background:#10717E;color:#fff"><th style="padding:6px 10px;text-align:right">תאריך</th><th style="padding:6px 10px;text-align:right">קבוצה</th><th style="padding:6px 10px;text-align:right">קורס</th><th style="padding:6px 10px;text-align:center">שעות</th><th style="padding:6px 10px;text-align:center">ש"ה</th></tr>
+      ${dayRowsHtml}
+      <tr style="background:#E8F5F3;font-weight:bold"><td colspan="4" style="padding:6px 10px">סה"כ שעות הוראה</td><td style="padding:6px 10px;text-align:center">${fmt(totalTeachHrs)}</td></tr>
+    </table>`:''}
+    ${privSection}
+    <h3 style="color:#10717E;font-size:14px;margin:20px 0 6px">סיכום תשלום</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
+      ${sumRows}
+      <tr style="background:#E8F5F3;font-weight:bold;font-size:14px"><td style="padding:8px 10px">סה"כ לתשלום</td><td style="padding:8px 10px;text-align:left;color:#10717E">₪${Math.round(calc.total).toLocaleString('he-IL')}</td></tr>
+    </table>
+    <div style="margin-top:14px;font-size:12px;color:#555">סטטוס: <strong>${stLbl}</strong></div>
+    ${l.type!=='employee'?`<div style="margin-top:10px;font-size:12px;color:#888">לאחר קבלת התשלום, נא לשלוח ${l.type==='freelance_vat'?'חשבונית מס/קבלה':'קבלה'} על סך ₪${Math.round(calc.total).toLocaleString('he-IL')}.</div>`:''}
+    <div style="margin-top:20px;padding-top:12px;border-top:1px solid #eee;font-size:11px;color:#aaa;text-align:center">שירת הלויים — בית הספר הגבוה למוסיקה | מסמך זה הופק ממערכת ניהול השעות</div>
+  </div></div>`;
+
+  emailjs.init(EMAILJS_PRIVATE_KEY?{publicKey:EMAILJS_PUBLIC_KEY,privateKey:EMAILJS_PRIVATE_KEY}:{publicKey:EMAILJS_PUBLIC_KEY});
+  emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,{
+    to_name:l.name,
+    to_email:l.email,
+    amount:Math.round(calc.total).toLocaleString('he-IL'),
+    description:'סיכום שעות '+monthLabel,
+    receipt_type:l.type==='freelance_vat'?'חשבונית מס/קבלה':l.type==='freelance_exempt'?'קבלה':'—',
+    message_html:msgHtml
+  }).then(()=>{
+    logAction('שליחת סיכום חודשי במייל',l.name+' — '+month);
+    alert('הסיכום נשלח בהצלחה ל-'+l.email);
+  },(e)=>alert('שגיאה בשליחת מייל: '+(e.text||e)));
 }
 
 function loadDB() {
