@@ -680,7 +680,7 @@ function isMonthLocked(month){
 // ══════════════════════════════════════════════
 // היסטוריית תשלומים למרצה
 // ══════════════════════════════════════════════
-function showLecturerHistory(lid){
+function showLecturerHistory(lid, curMonth){
   const l=getLect(lid);if(!l)return;
   const months=[...new Set(DB.days.filter(d=>d.dayApproval==='approved').map(d=>d.date.slice(0,7)))].sort((a,b)=>b.localeCompare(a));
   const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -719,7 +719,7 @@ function showLecturerHistory(lid){
       </table>
     </div>
     <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-start">
-      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button> <button onclick="exportLecturerPDF('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>
+      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button> <button onclick="exportLecturerPDF('${lid}','${curMonth||''}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>
     </div>
   </div>`;
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
@@ -1805,52 +1805,120 @@ function moveGroupDown(track, idx){
   saveDB();renderSettings();
 }
 
-function exportLecturerPDF(lid){
+function exportLecturerPDF(lid, month){
   const l=getLect(lid);if(!l)return;
-  const months=[...new Set(DB.days.filter(d=>d.dayApproval==='approved').map(d=>d.date.slice(0,7)))].sort((a,b)=>b.localeCompare(a));
   const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-  let totalAll=0;
-  const rows=months.map(m=>{
-    const c=calcLect(lid,m);if(!c||!c.total)return null;
-    const st=(DB.payStatuses||{})[m+'_'+lid]||'pending';
-    const stLbl={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית'}[st]||st;
-    const d=new Date(m+'-01');totalAll+=c.total;
-    return`<tr style="border-bottom:1px solid #eee"><td style="padding:6px 8px">${HEB[d.getMonth()]} ${d.getFullYear()}</td><td style="padding:6px 8px;text-align:center">${c.hrs}</td><td style="padding:6px 8px;text-align:center">${c.privHrs||0}</td><td style="padding:6px 8px;text-align:center;font-weight:500">₪${Math.round(c.total).toLocaleString('he-IL')}</td><td style="padding:6px 8px;text-align:center">${stLbl}</td></tr>`;
-  }).filter(Boolean);
+  const DOW=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
   const now=new Date();
+
+  // If no month passed, use current month
+  if(!month) month=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+
+  const md=new Date(month+'-01');
+  const monthLabel=HEB[md.getMonth()]+' '+md.getFullYear();
+  const typeLabel=l.type==='employee'?'שכיר':l.type==='freelance_vat'?'מורשה עוסק':'פטור ממע"מ';
+  const calc=calcLect(lid,month);
+  const st=(DB.payStatuses||{})[month+'_'+lid]||'pending';
+  const stLbl={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית'}[st]||st;
+
+  // Teaching days for this lecturer this month
+  const teachDays=(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved'&&
+    (d.groups||[]).some(g=>g.rows.some(r=>r.lectId===lid))).sort((a,b)=>a.date.localeCompare(b.date));
+
+  let totalTeachHrs=0;
+  const dayRows=[];
+  teachDays.forEach(d=>{
+    const dateObj=new Date(d.date+'T12:00:00');
+    const dateStr=String(dateObj.getDate()).padStart(2,'0')+'.'+String(dateObj.getMonth()+1).padStart(2,'0');
+    const dowStr=DOW[dateObj.getDay()];
+    (d.groups||[]).forEach(g=>{
+      g.rows.filter(r=>r.lectId===lid).forEach(r=>{
+        const hrs=r.payHrs||r.pay||0;
+        totalTeachHrs+=hrs;
+        dayRows.push(`<tr><td style="padding:5px 8px">${dateStr}</td><td style="padding:5px 8px">${dowStr}</td><td style="padding:5px 8px">${g.name}</td><td style="padding:5px 8px">${r.courseName||'—'}</td><td style="padding:5px 8px;text-align:center">${r.start||'—'}</td><td style="padding:5px 8px;text-align:center">${r.end||'—'}</td><td style="padding:5px 8px;text-align:center;font-weight:500">${fmt(hrs)}</td></tr>`);
+      });
+    });
+  });
+  totalTeachHrs=Math.round(totalTeachHrs*100)/100;
+
+  // Private lessons
+  const privLessons=(DB.privateLessons||[]).filter(pl=>pl.lectId===lid&&pl.date.startsWith(month)&&pl.privApproval==='approved').sort((a,b)=>a.date.localeCompare(b.date));
+  let totalPrivHrs=0;
+  const privRows=privLessons.map(pl=>{
+    const dateObj=new Date(pl.date+'T12:00:00');
+    const dateStr=String(dateObj.getDate()).padStart(2,'0')+'.'+String(dateObj.getMonth()+1).padStart(2,'0');
+    const dowStr=DOW[dateObj.getDay()];
+    const s=getStudent(pl.studentId);
+    const acad=toAcad(pl.duration);
+    totalPrivHrs+=acad;
+    return`<tr><td style="padding:5px 8px">${dateStr}</td><td style="padding:5px 8px">${dowStr}</td><td style="padding:5px 8px">${s?s.name:'—'}</td><td style="padding:5px 8px">${s?s.instrument:'—'}</td><td style="padding:5px 8px;text-align:center">${pl.time||'—'}</td><td style="padding:5px 8px;text-align:center" colspan="2">${fmt(acad)}</td></tr>`;
+  });
+  totalPrivHrs=Math.round(totalPrivHrs*100)/100;
+
+  const privSection=privRows.length?`
+    <h3 style="color:#10717E;font-size:14px;margin:24px 0 6px">שיעורי כלי פרטניים</h3>
+    <table>
+      <tr><th>תאריך</th><th>יום</th><th>תלמיד</th><th>כלי</th><th style="text-align:center">שעה</th><th style="text-align:center" colspan="2">ש"ה</th></tr>
+      ${privRows.join('')}
+      <tr class="total-row"><td colspan="6" style="padding:7px 8px">סה"כ שיעורי כלי</td><td style="padding:7px 8px;text-align:center">${fmt(totalPrivHrs)}</td></tr>
+    </table>`:'';
+
+  const summaryRows=[];
+  if(calc){
+    summaryRows.push(`<tr><td style="padding:5px 8px">שעות הוראה</td><td style="padding:5px 8px;text-align:center">${fmt(calc.hrs)} ש"ה</td><td style="padding:5px 8px;text-align:center">₪${calc.rate}/ש"ה</td><td style="padding:5px 8px;text-align:center;font-weight:500">₪${Math.round(calc.base).toLocaleString('he-IL')}</td></tr>`);
+    if(calc.privHrs>0) summaryRows.push(`<tr><td style="padding:5px 8px">שיעורי כלי</td><td style="padding:5px 8px;text-align:center">${fmt(calc.privHrs)} ש"ה</td><td style="padding:5px 8px;text-align:center">₪${calc.ratePriv||0}/ש"ה</td><td style="padding:5px 8px;text-align:center;font-weight:500">₪${Math.round(calc.privBase||0).toLocaleString('he-IL')}</td></tr>`);
+    if(calc.management>0) summaryRows.push(`<tr><td style="padding:5px 8px">תוספת מנהלה</td><td colspan="2"></td><td style="padding:5px 8px;text-align:center;font-weight:500">₪${Math.round(calc.management).toLocaleString('he-IL')}</td></tr>`);
+    if(calc.travel>0) summaryRows.push(`<tr><td style="padding:5px 8px">נסיעות</td><td colspan="2"></td><td style="padding:5px 8px;text-align:center;font-weight:500">₪${Math.round(calc.travel).toLocaleString('he-IL')}</td></tr>`);
+    if(calc.vat>0) summaryRows.push(`<tr><td style="padding:5px 8px">מע"מ (18%)</td><td colspan="2"></td><td style="padding:5px 8px;text-align:center;font-weight:500">₪${Math.round(calc.vat).toLocaleString('he-IL')}</td></tr>`);
+  }
+
   const html=`<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><style>
     body{font-family:Arial,sans-serif;direction:rtl;padding:40px;color:#222;font-size:13px}
     .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #10717E;padding-bottom:16px;margin-bottom:24px}
     .logo-text{font-size:22px;font-weight:bold;color:#10717E}
     .sub{font-size:13px;color:#666;margin-top:4px}
-    h2{color:#10717E;font-size:16px;margin:0 0 4px}
-    table{width:100%;border-collapse:collapse;margin-top:16px}
-    th{background:#10717E;color:#fff;padding:8px;text-align:right}
+    h2{color:#10717E;font-size:16px;margin:0 0 2px}
+    h3{color:#10717E;font-size:14px;margin:20px 0 6px}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th{background:#10717E;color:#fff;padding:7px 8px;text-align:right;font-size:12px}
     tr:nth-child(even){background:#f7f7f7}
     .total-row{border-top:2px solid #10717E;font-weight:bold;background:#E8F5F3}
+    .summary-box{border:1.5px solid #10717E;border-radius:6px;padding:12px 16px;margin-top:24px;background:#F0FAF8}
+    .summary-line{display:flex;justify-content:space-between;font-size:13px;padding:3px 0;border-bottom:0.5px solid #C5E8E3}
+    .summary-total{display:flex;justify-content:space-between;font-size:16px;font-weight:bold;padding:8px 0 0;color:#10717E}
+    .status-badge{display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;background:#E8F5F3;color:#10717E;border:1px solid #A0D4C8}
     .footer{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#999;text-align:center}
     @media print{body{padding:20px}}
   </style></head><body>
   <div class="header">
     <div style="display:flex;align-items:center;gap:10px">
       <img src="/logo.png" style="height:50px;object-fit:contain" onerror="this.style.display='none'">
-      <div>
-        <div class="logo-text">שירת הלויים</div>
-        <div class="sub">בית הספר הגבוה למוסיקה</div>
-      </div>
+      <div><div class="logo-text">שירת הלויים</div><div class="sub">בית הספר הגבוה למוסיקה</div></div>
     </div>
-    <div style="text-align:left;color:#666;font-size:12px">
-      <div>דוח תשלומים למרצה</div>
-      <div>הופק: ${now.toLocaleDateString('he-IL')}</div>
-    </div>
+    <div style="text-align:left;color:#666;font-size:12px"><div>דוח שעות עבודה — ${monthLabel}</div><div>הופק: ${now.toLocaleDateString('he-IL')}</div></div>
   </div>
   <h2>${l.name}</h2>
-  <div style="font-size:12px;color:#666;margin-bottom:4px">${l.type==='employee'?'שכיר':l.type==='freelance_vat'?'מורשה עוסק':'פטור ממע"מ'} | תעריף: ₪${l.rate}/ש"ה${l.ratePriv?' | פרטני: ₪'+l.ratePriv+'/ש"ה':''}</div>
+  <div style="font-size:12px;color:#666;margin-bottom:12px">${typeLabel} | תעריף: ₪${l.rate}/ש"ה${l.ratePriv?' | פרטני: ₪'+l.ratePriv+'/ש"ה':''}</div>
+
+  ${dayRows.length?`<h3>ימי הוראה — ${monthLabel}</h3>
   <table>
-    <tr><th>חודש</th><th style="text-align:center">ש"ה הוראה</th><th style="text-align:center">ש"ה כלי</th><th style="text-align:center">סכום</th><th style="text-align:center">סטטוס</th></tr>
-    ${rows.join('')}
-    <tr class="total-row"><td colspan="3" style="padding:8px">סה"כ שנתי</td><td style="padding:8px;text-align:center">₪${Math.round(totalAll).toLocaleString('he-IL')}</td><td></td></tr>
-  </table>
+    <tr><th>תאריך</th><th>יום</th><th>קבוצה</th><th>קורס</th><th style="text-align:center">כניסה</th><th style="text-align:center">יציאה</th><th style="text-align:center">ש"ה</th></tr>
+    ${dayRows.join('')}
+    <tr class="total-row"><td colspan="6" style="padding:7px 8px">סה"כ שעות הוראה</td><td style="padding:7px 8px;text-align:center">${fmt(totalTeachHrs)}</td></tr>
+  </table>`:'<div style="color:#999;font-size:12px;margin:12px 0">אין ימי הוראה מאושרים בחודש זה</div>'}
+
+  ${privSection}
+
+  <div class="summary-box">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px;color:#10717E">סיכום תשלום — ${monthLabel}</div>
+    <table style="margin-top:0">
+      <tr><th>רכיב</th><th style="text-align:center">כמות</th><th style="text-align:center">תעריף</th><th style="text-align:center">סכום</th></tr>
+      ${summaryRows.join('')}
+      ${calc?`<tr class="total-row"><td colspan="3" style="padding:8px">סה"כ לתשלום</td><td style="padding:8px;text-align:center;font-size:15px">₪${Math.round(calc.total).toLocaleString('he-IL')}</td></tr>`:''}
+    </table>
+    <div style="margin-top:10px;font-size:12px;color:#555">סטטוס: <span class="status-badge">${stLbl}</span></div>
+  </div>
+
   <div class="footer">שירת הלויים — בית הספר הגבוה למוסיקה | מסמך זה הופק ממערכת ניהול השעות</div>
   </body></html>`;
   const w=window.open('','_blank');
@@ -3009,7 +3077,7 @@ function renderMonthly(){const month=document.getElementById('m-month')?.value;i
     const key=month+'_'+lid;
     const st=(DB.payStatuses&&DB.payStatuses[key])||'pending';
     const payNote=(DB.payNotes&&DB.payNotes[key])||'';const isApproved=st==='approved';const isReceived=st==='received'||(l.type==='employee'&&st==='done');const isReview=st==='pending'||st==='review';
-    const stOpts=[{v:'pending',lbl:'ממתין לאישור'},{v:'review',lbl:'לבדיקה'},{v:'approved',lbl:'אושר'},{v:'done',lbl:'שולם'},{v:'received',lbl:'שולם + קבלה / חשבונית ✓'}].map(o=>`<option value="${o.v}"${o.v===st?' selected':''}>${o.lbl}</option>`).join('');const editI=(f,v,lbl)=>`<div class="pay-cell"><div class="pay-cell-label">${lbl}</div><div class="pay-cell-val" style="color:#10717E">${f.includes('Hrs')||f==='hrs'||f==='privHrs'?fmt(v):fmtM(v)}</div><input type="number" value="${Math.round(v*100)/100}" step="0.25" onchange="overrideF('${key}','${f}',this.value)" style="margin-top:2px"></div>`;const rowHtml=`<div class="lect-pay-row" style="${isReceived?'border-color:#3B6D11;background:rgba(234,243,222,0.35);':isApproved?'border-color:#C0DD97;':isReview?'border-color:#F7C1C1;':''}"><div class="lect-pay-hdr" onclick="toggleLPR('lpr_${lid}')"><div style="display:flex;align-items:center;gap:10px"><div style="width:34px;height:34px;border-radius:50%;background:${isReceived?'#EAF3DE':isApproved?'rgba(225,245,238,0.6)':isReview?'#FCEBEB':'var(--color-background-secondary)'};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:${isReceived?'#3B6D11':isApproved?'#085041':isReview?'#A32D2D':'var(--color-text-secondary)'};">${l.name.charAt(0)}</div><div><div style="font-size:13px;font-weight:500"><span onclick="showLecturerHistory('${lid}')" style="cursor:pointer;color:var(--color-text-primary);border-bottom:1px dotted var(--color-border-secondary)">${l.name}</span> ${tag}${payNote?` <span style="font-size:11px;color:var(--color-text-secondary);font-style:italic">| ${payNote}</span>`:''} <button class="btn btn-sm" style="font-size:10px;padding:1px 5px" onclick="event.stopPropagation();editPayNote('`+key+`')" title="הוסף הערה">✎</button></div><div style="font-size:11px;color:var(--color-text-secondary)">${typeBadge(l.type).replace(/<[^>]+>/g,'')} | ${fmt(calc.hrs)} ש"ה הוראה${calc.privHrs>0?' | '+fmt(calc.privHrs)+' ש"ה פרטני':''}<div style=\"font-size:11px;color:var(--color-text-secondary);margin-top:1px\">${fmtM(calc.base)}${calc.privBase>0?' + '+fmtM(calc.privBase)+' פרטני':''}${calc.management>0?' + '+fmtM(calc.management)+' מנהלה':''}${calc.travel>0?' + '+fmtM(calc.travel)+' נסיעות':''}</div></div></div></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:16px;font-weight:500;color:#10717E">${fmtM(calc.total)}</div><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${isReview?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();updatePayStatus('`+key+`','approved')">✓ אשר</button>`:''}
+    const stOpts=[{v:'pending',lbl:'ממתין לאישור'},{v:'review',lbl:'לבדיקה'},{v:'approved',lbl:'אושר'},{v:'done',lbl:'שולם'},{v:'received',lbl:'שולם + קבלה / חשבונית ✓'}].map(o=>`<option value="${o.v}"${o.v===st?' selected':''}>${o.lbl}</option>`).join('');const editI=(f,v,lbl)=>`<div class="pay-cell"><div class="pay-cell-label">${lbl}</div><div class="pay-cell-val" style="color:#10717E">${f.includes('Hrs')||f==='hrs'||f==='privHrs'?fmt(v):fmtM(v)}</div><input type="number" value="${Math.round(v*100)/100}" step="0.25" onchange="overrideF('${key}','${f}',this.value)" style="margin-top:2px"></div>`;const rowHtml=`<div class="lect-pay-row" style="${isReceived?'border-color:#3B6D11;background:rgba(234,243,222,0.35);':isApproved?'border-color:#C0DD97;':isReview?'border-color:#F7C1C1;':''}"><div class="lect-pay-hdr" onclick="toggleLPR('lpr_${lid}')"><div style="display:flex;align-items:center;gap:10px"><div style="width:34px;height:34px;border-radius:50%;background:${isReceived?'#EAF3DE':isApproved?'rgba(225,245,238,0.6)':isReview?'#FCEBEB':'var(--color-background-secondary)'};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:${isReceived?'#3B6D11':isApproved?'#085041':isReview?'#A32D2D':'var(--color-text-secondary)'};">${l.name.charAt(0)}</div><div><div style="font-size:13px;font-weight:500"><span onclick="showLecturerHistory('${lid}','${month}')" style="cursor:pointer;color:var(--color-text-primary);border-bottom:1px dotted var(--color-border-secondary)">${l.name}</span> ${tag}${payNote?` <span style="font-size:11px;color:var(--color-text-secondary);font-style:italic">| ${payNote}</span>`:''} <button class="btn btn-sm" style="font-size:10px;padding:1px 5px" onclick="event.stopPropagation();editPayNote('`+key+`')" title="הוסף הערה">✎</button></div><div style="font-size:11px;color:var(--color-text-secondary)">${typeBadge(l.type).replace(/<[^>]+>/g,'')} | ${fmt(calc.hrs)} ש"ה הוראה${calc.privHrs>0?' | '+fmt(calc.privHrs)+' ש"ה פרטני':''}<div style=\"font-size:11px;color:var(--color-text-secondary);margin-top:1px\">${fmtM(calc.base)}${calc.privBase>0?' + '+fmtM(calc.privBase)+' פרטני':''}${calc.management>0?' + '+fmtM(calc.management)+' מנהלה':''}${calc.travel>0?' + '+fmtM(calc.travel)+' נסיעות':''}</div></div></div></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:16px;font-weight:500;color:#10717E">${fmtM(calc.total)}</div><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${isReview?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();updatePayStatus('`+key+`','approved')">✓ אשר</button>`:''}
 ${isApproved?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();updatePayStatus('`+key+`','done')">✓ שולם</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="event.stopPropagation();updatePayStatus('`+key+`','pending')">× בטל</button>`:''}
 ${st==='done'&&l.type!=='employee'?`<span class="badge b-ok" style="font-size:10px">שולם ✓</span><button class="btn btn-sm" style="font-size:10px;padding:2px 8px;background:#E8F4FC;color:#085041;border-color:#A0CDE8" onclick="event.stopPropagation();updatePayStatus('`+key+`','received')">התקבלה חשבונית / קבלה ✓</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="event.stopPropagation();updatePayStatus('`+key+`','pending')">× בטל</button>`:''}${st==='done'&&l.type==='employee'?`<span class="badge b-ok" style="font-size:10px">שולם — הסתיים טיפול ✓</span><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="event.stopPropagation();updatePayStatus('`+key+`','pending')">× בטל</button>`:''}
 ${st==='received'?`<span class="badge b-ok" style="font-size:10px">שולם, התקבלה חשבונית / קבלה — הסתיים טיפול ✓</span><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="event.stopPropagation();updatePayStatus('`+key+`','pending')">× בטל</button>`:''}${st==='review'?`<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;background:#FCEBEB;color:#A32D2D" onclick="event.stopPropagation();updatePayStatus('`+key+`','pending')">ממתין ← לבדיקה</button>`:''}
