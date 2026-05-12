@@ -3180,7 +3180,7 @@ function _offerPaymentEmail(payKeys, miscIds){
     :`לשלוח הודעות תשלום ל-${candidates.length} נמענים?\n${candidates.map(c=>c.name+' — '+c.email).join('\n')}`;
   if(!confirm(q))return;
   if(!EMAILJS_READY()){alert('EmailJS לא מוגדר עדיין — ראה הוראות הגדרה בקוד (EMAILJS_PUBLIC_KEY)');return;}
-  candidates.forEach(c=>_sendPaymentEmail(c));
+  candidates.forEach((c,i)=>setTimeout(()=>_sendPaymentEmail(c),i*1500));
 }
 
 // ── תזכורות קבלות ── (נשאל בכניסה של מנהל/ת בלבד)
@@ -3225,7 +3225,7 @@ function _promptPaymentReminders(){
   const lines=due.map(x=>{const d=new Date(x.params.month+'-01');return '• '+x.params.name+' ('+HEB_M[d.getMonth()]+' '+d.getFullYear()+') — תזכורת '+x.dueNum+'/3';}).join('\n');
   if(!confirm('המרצים הבאים טרם שלחו קבלה:\n\n'+lines+'\n\nלשלוח להם תזכורת בדוא"ל?'))return;
   let changed=false;
-  due.forEach(({key,dueNum,params})=>{_sendPaymentEmail(params);DB.payReminderSent[key]=dueNum;changed=true;});
+  due.forEach(({key,dueNum,params},i)=>{DB.payReminderSent[key]=dueNum;changed=true;setTimeout(()=>_sendPaymentEmail(params),i*1500);});
   if(changed)saveDB();
 }
 
