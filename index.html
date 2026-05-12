@@ -689,14 +689,15 @@ function showLecturerHistory(lid, curMonth){
     const c=calcLect(lid,m);if(!c||!c.total)return null;
     const st=(DB.payStatuses||{})[m+'_'+lid]||'pending';
     const stLbl={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית'}[st]||st;
+    const stColor={'pending':'var(--color-text-secondary)','approved':'#3B6D11','done':'#085041','received':'#085041'}[st]||'var(--color-text-secondary)';
     totalAll+=c.total;
     const d=new Date(m+'-01');
-    return`<tr style="border-bottom:0.5px solid var(--color-border-tertiary)"><td style="padding:5px 8px;font-size:12px">${HEB[d.getMonth()]} ${d.getFullYear()}</td><td style="padding:5px 8px;font-size:12px;text-align:center">${c.hrs}</td><td style="padding:5px 8px;font-size:12px;text-align:center">${c.privHrs||0}</td><td style="padding:5px 8px;font-size:12px;text-align:center;font-weight:500">₪${Math.round(c.total).toLocaleString('he-IL')}</td><td style="padding:5px 8px;font-size:12px;text-align:center"><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--color-background-secondary)">${stLbl}</span></td></tr>`;
+    return`<tr style="border-bottom:0.5px solid var(--color-border-tertiary)"><td style="padding:5px 8px;font-size:12px">${HEB[d.getMonth()]} ${d.getFullYear()}</td><td style="padding:5px 8px;font-size:12px;text-align:center">${c.hrs}</td><td style="padding:5px 8px;font-size:12px;text-align:center">${c.privHrs||0}</td><td style="padding:5px 8px;font-size:12px;text-align:center;font-weight:500">₪${Math.round(c.total).toLocaleString('he-IL')}</td><td style="padding:5px 8px;font-size:12px;text-align:center"><span style="font-size:10px;padding:2px 6px;border-radius:4px;background:var(--color-background-secondary);color:${stColor}">${stLbl}</span></td><td style="padding:5px 4px;text-align:center"><button onclick="exportLecturerPDF('${lid}','${m}')" title="PDF פירוט חודש זה" style="font-size:10px;padding:2px 7px;border:0.5px solid #10717E;border-radius:4px;background:none;color:#10717E;cursor:pointer">📄 PDF</button></td></tr>`;
   }).filter(Boolean);
 
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center';
-  overlay.innerHTML=`<div style="background:var(--color-background-primary);border-radius:12px;padding:20px;max-width:600px;width:92%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;direction:rtl">
+  overlay.innerHTML=`<div style="background:var(--color-background-primary);border-radius:12px;padding:20px;max-width:640px;width:92%;max-height:85vh;overflow:hidden;display:flex;flex-direction:column;direction:rtl">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
       <span style="font-size:14px;font-weight:500">${l.name} — היסטוריית תשלומים</span>
       <button onclick="this.closest('div[style*=position]').remove()" style="font-size:18px;background:none;border:none;cursor:pointer;color:var(--color-text-secondary)">✕</button>
@@ -709,17 +710,21 @@ function showLecturerHistory(lid, curMonth){
           <th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:center">ש"ה כלי</th>
           <th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:center">סכום</th>
           <th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:center">סטטוס</th>
+          <th style="padding:4px 8px;font-size:11px;color:var(--color-text-secondary);text-align:center">פירוט</th>
         </tr></thead>
         <tbody>${rows.join('')}</tbody>
         <tfoot><tr style="border-top:1px solid var(--color-border-secondary)">
           <td colspan="3" style="padding:6px 8px;font-size:12px;font-weight:500">סה"כ שנתי</td>
           <td style="padding:6px 8px;font-size:13px;font-weight:500;text-align:center;color:#10717E">₪${Math.round(totalAll).toLocaleString('he-IL')}</td>
-          <td></td>
+          <td colspan="2"></td>
         </tr></tfoot>
       </table>
     </div>
-    <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-start">
-      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button> <button onclick="exportLecturerPDF('${lid}','${curMonth||''}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>${l.email&&curMonth?` <button onclick="emailLecturerSummary('${lid}','${curMonth}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #5A7FA8;border-radius:6px;background:#5A7FA8;color:#fff;cursor:pointer">📧 שלח במייל</button>`:''}
+    <div style="margin-top:10px;display:flex;gap:8px;justify-content:flex-start;align-items:center">
+      <span style="font-size:11px;color:var(--color-text-secondary)">כל החודשים:</span>
+      <button onclick="exportLecturerExcel('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:none;color:var(--color-text-primary);cursor:pointer">⬇ Excel</button>
+      <button onclick="exportLecturerAllPDF('${lid}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #10717E;border-radius:6px;background:#10717E;color:#fff;cursor:pointer">⬇ PDF</button>
+      ${l.email&&curMonth?`<button onclick="emailLecturerSummary('${lid}','${curMonth}')" style="font-size:12px;padding:5px 12px;border:0.5px solid #5A7FA8;border-radius:6px;background:#5A7FA8;color:#fff;cursor:pointer">📧 מייל (${curMonth})</button>`:''}
     </div>
   </div>`;
   overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
@@ -1926,6 +1931,54 @@ function exportLecturerPDF(lid, month){
   w.document.close();
   w.focus();
   setTimeout(()=>w.print(),500);
+}
+
+// ── ייצוא PDF — כל החודשים (סיכום ללא פירוט יומי) ──
+function exportLecturerAllPDF(lid){
+  const l=getLect(lid);if(!l)return;
+  const months=[...new Set((DB.days||[]).filter(d=>d.dayApproval==='approved').map(d=>d.date.slice(0,7)))].sort((a,b)=>b.localeCompare(a));
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const typeLabel=l.type==='employee'?'שכיר':l.type==='freelance_vat'?'מורשה עוסק':'פטור ממע"מ';
+  let totalAll=0;
+  const rows=months.map(m=>{
+    const c=calcLect(lid,m);if(!c||!c.total)return null;
+    const st=(DB.payStatuses||{})[m+'_'+lid]||'pending';
+    const stLbl={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית'}[st]||st;
+    const stColor={'pending':'#888','approved':'#3B6D11','done':'#085041','received':'#085041'}[st]||'#888';
+    const d=new Date(m+'-01');totalAll+=c.total;
+    return`<tr style="border-bottom:1px solid #eee"><td style="padding:6px 8px">${HEB[d.getMonth()]} ${d.getFullYear()}</td><td style="padding:6px 8px;text-align:center">${fmt(c.hrs)}</td><td style="padding:6px 8px;text-align:center">${fmt(c.privHrs||0)}</td><td style="padding:6px 8px;text-align:center;font-weight:500">₪${Math.round(c.total).toLocaleString('he-IL')}</td><td style="padding:6px 8px;text-align:center;color:${stColor};font-size:11px">${stLbl}</td></tr>`;
+  }).filter(Boolean);
+  if(!rows.length){alert('אין נתונים לייצוא');return;}
+  const now=new Date();
+  const html=`<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8"><style>
+    body{font-family:Arial,sans-serif;direction:rtl;padding:40px;color:#222;font-size:13px}
+    .header{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #10717E;padding-bottom:16px;margin-bottom:24px}
+    .logo-text{font-size:22px;font-weight:bold;color:#10717E}
+    h2{color:#10717E;font-size:16px;margin:0 0 4px}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th{background:#10717E;color:#fff;padding:8px;text-align:right;font-size:12px}
+    tr:nth-child(even){background:#f7f7f7}
+    .total-row{border-top:2px solid #10717E;font-weight:bold;background:#E8F5F3}
+    .footer{margin-top:32px;padding-top:12px;border-top:1px solid #ddd;font-size:11px;color:#999;text-align:center}
+    @media print{body{padding:20px}}
+  </style></head><body>
+  <div class="header">
+    <div style="display:flex;align-items:center;gap:10px">
+      <img src="/logo.png" style="height:50px;object-fit:contain" onerror="this.style.display='none'">
+      <div><div class="logo-text">שירת הלויים</div><div style="font-size:13px;color:#666;margin-top:4px">בית הספר הגבוה למוסיקה</div></div>
+    </div>
+    <div style="text-align:left;color:#666;font-size:12px"><div>דוח תשלומים שנתי</div><div>הופק: ${now.toLocaleDateString('he-IL')}</div></div>
+  </div>
+  <h2>${l.name}</h2>
+  <div style="font-size:12px;color:#666;margin-bottom:4px">${typeLabel} | תעריף: ₪${l.rate}/ש"ה${l.ratePriv?' | פרטני: ₪'+l.ratePriv+'/ש"ה':''}</div>
+  <table>
+    <tr><th>חודש</th><th style="text-align:center">ש"ה הוראה</th><th style="text-align:center">ש"ה כלי</th><th style="text-align:center">סכום</th><th style="text-align:center">סטטוס</th></tr>
+    ${rows.join('')}
+    <tr class="total-row"><td colspan="3" style="padding:8px">סה"כ שנתי</td><td style="padding:8px;text-align:center">₪${Math.round(totalAll).toLocaleString('he-IL')}</td><td></td></tr>
+  </table>
+  <div class="footer">שירת הלויים — בית הספר הגבוה למוסיקה | מסמך זה הופק ממערכת ניהול השעות</div>
+  </body></html>`;
+  const w=window.open('','_blank');w.document.write(html);w.document.close();w.focus();setTimeout(()=>w.print(),500);
 }
 
 // ── שליחת סיכום חודשי במייל ──
