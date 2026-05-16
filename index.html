@@ -254,7 +254,7 @@ tr.drag-over td{border-top:2px solid #10717E}
     <div style="display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <select id="m-month" style="width:135px" onchange="renderMonthly()"></select>
       
-      <button class="btn btn-sm" style="font-size:11px" onclick="exportPaymentsExcel()">⬇ ייצוא לבנק</button> <button class="btn btn-sm" id="lock-month-btn" style="font-size:11px" onclick="lockMonth(document.getElementById('m-month').value)">🔒 נעל חודש</button> <button class="btn btn-sm" style="font-size:11px" onclick="exportEmployeesExcel()">⬇ שכירים להנה"ח</button></div>
+      <button class="btn btn-sm" style="font-size:11px" onclick="exportPaymentsExcel()">⬇ ייצוא לבנק</button> <button class="btn btn-sm" id="lock-month-btn" style="font-size:11px" onclick="lockMonth(document.getElementById('m-month').value)">🔒 נעל חודש</button> <button class="btn btn-sm" style="font-size:11px" onclick="exportEmployeesExcel()">⬇ שכירים להנה"ח</button> <button class="btn btn-sm" style="font-size:11px;background:var(--color-background-secondary);border:0.5px solid #10717E;color:#10717E;font-weight:500" onclick="exportMonthlyControlExcel()">📊 ייצוא לבקרה</button></div>
     <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:9px;display:flex;gap:14px"><span><span style="display:inline-block;width:10px;height:10px;background:rgba(234,243,222,0.9);border:0.5px solid #C0DD97;border-radius:2px;margin-left:4px"></span>אושר</span><span><span style="display:inline-block;width:10px;height:10px;background:rgba(252,235,235,0.9);border:0.5px solid #F7C1C1;border-radius:2px;margin-left:4px"></span>לבדיקה</span></div>
     <div class="bulk-bar" style="margin-bottom:8px">
       <input type="checkbox" id="cb-all-monthly" onchange="toggleAllMonthlyPay(this.checked)" style="width:16px;height:16px;accent-color:#10717E">
@@ -2760,6 +2760,202 @@ function exportMiscExcel(month){
   const rows=pmts.map(p=>{const b=parseBankStr(p.bankName||'');const code=b.bankCode||getBankCode(b.bankName||'');return[p.name,code,p.branch||'',p.account||'','תשלום לספק',Math.round(p.amount)];});
   _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_נוספים_'+month+'.xls');
 }
+// ══════════════════════════════════════════════
+// ייצוא בקרה חודשית — 6 לשוניות
+// ══════════════════════════════════════════════
+function exportMonthlyControlExcel(month){
+  if(!month){month=document.getElementById('m-month')?.value;if(!month){alert('בחר חודש');return;}}
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const DOW=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const md=new Date(month+'-01');const ML=HEB[md.getMonth()]+' '+md.getFullYear();
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const X=(v,s)=>{
+    if(v===null||v===undefined)return s?`<Cell ss:StyleID="${s}"/>`:'<Cell/>';
+    const t=typeof v==='number'?'Number':'String';
+    const sa=s?` ss:StyleID="${s}"`:''
+    return`<Cell${sa}><Data ss:Type="${t}">${esc(v)}</Data></Cell>`;
+  };
+  const R=(...cells)=>'<Row>'+cells.join('')+'</Row>';
+  const E='<Row><Cell/></Row>';
+  const stL=st=>({'pending':'ממתין','approved':'אושר','done':'שולם','received':'שולם+קבלה'}[st]||st||'ממתין');
+
+  // ── לשוניות גברים / נשים ──
+  function buildTrack(track,sheetName){
+    const days=(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved'&&d.track===track).sort((a,b)=>a.date.localeCompare(b.date));
+    const lidSet=new Set();
+    days.forEach(d=>(d.groups||[]).forEach(g=>g.rows.forEach(r=>{if(r.lectId)lidSet.add(r.lectId);})));
+    (DB.privateLessons||[]).filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved').forEach(pl=>{const l=getLect(pl.lectId);if(l&&l.track===track)lidSet.add(pl.lectId);});
+    const lects=[...lidSet].map(id=>getLect(id)).filter(Boolean);
+    lects.sort((a,b)=>{if(a.type==='employee'&&b.type!=='employee')return -1;if(a.type!=='employee'&&b.type==='employee')return 1;return(a.name||'').localeCompare(b.name||'','he');});
+    if(!lects.length)return`<Worksheet ss:Name="${sheetName}"><Table><Row>${X('אין נתונים לחודש זה')}</Row></Table></Worksheet>`;
+    const cw='<Column ss:Width="70"/><Column ss:Width="55"/>'+lects.map(()=>'<Column ss:Width="82"/>').join('')+'<Column ss:Width="88"/>';
+    const out=[];
+    out.push(R(X(`בקרת שעות — ${ML} — ${sheetName}`,'TL'),...lects.map(()=>X(null,'TL')),X(null,'TL')));
+    out.push(E);
+    // הוראה קבוצתית
+    out.push(R(X('הוראה קבוצתית','SC'),...lects.map(()=>X(null,'SC')),X(null,'SC')));
+    out.push(R(X('תאריך','H'),X('יום','H'),...lects.map(l=>X(l.name,'H')),X('סה"כ יום','H')));
+    days.forEach(d=>{
+      const dt=new Date(d.date+'T12:00:00');
+      const ds=String(dt.getDate()).padStart(2,'0')+'.'+String(dt.getMonth()+1).padStart(2,'0');
+      let rt=0;
+      const cells=lects.map(l=>{let h=0;(d.groups||[]).forEach(g=>g.rows.filter(r=>r.lectId===l.id).forEach(r=>{h+=r.payHrs||r.pay||0;}));h=Math.round(h*100)/100;rt+=h;return X(h||null,h?'N':null);});
+      out.push(R(X(ds),X(DOW[dt.getDay()]),...cells,X(Math.round(rt*100)/100,'NB')));
+    });
+    const tHrs=lects.map(l=>{let h=0;days.forEach(d=>(d.groups||[]).forEach(g=>g.rows.filter(r=>r.lectId===l.id).forEach(r=>{h+=r.payHrs||r.pay||0;})));return Math.round(h*100)/100;});
+    const tGrand=Math.round(tHrs.reduce((s,v)=>s+v,0)*100)/100;
+    const tCosts=lects.map((l,i)=>{const c=calcLect(l.id,month);return c?Math.round(c.base):Math.round(tHrs[i]*l.rate);});
+    out.push(R(X('סה"כ שעות הוראה','T'),X(null,'T'),...tHrs.map(v=>X(v||null,v?'NB':'T')),X(tGrand,'NB')));
+    out.push(R(X('תעריף לש"ה (₪)','L'),X(null),...lects.map(l=>X(l.rate,'M')),X(null)));
+    out.push(R(X('עלות הוראה (₪)','T'),X(null,'T'),...tCosts.map(v=>X(v||null,v?'MB':'T')),X(tCosts.reduce((s,v)=>s+v,0),'MB')));
+    out.push(E);
+    // שיעורי כלי
+    const priv=(DB.privateLessons||[]).filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved'&&lidSet.has(pl.lectId)).sort((a,b)=>a.date.localeCompare(b.date));
+    if(priv.length){
+      const pbd={};priv.forEach(pl=>{const a=toAcad(pl.duration);if(!pbd[pl.date])pbd[pl.date]={};pbd[pl.date][pl.lectId]=(pbd[pl.date][pl.lectId]||0)+a;});
+      out.push(R(X('שיעורי כלי פרטניים','SC'),...lects.map(()=>X(null,'SC')),X(null,'SC')));
+      out.push(R(X('תאריך','H'),X('יום','H'),...lects.map(l=>X(l.name,'H')),X('סה"כ','H')));
+      Object.keys(pbd).sort().forEach(date=>{
+        const dt=new Date(date+'T12:00:00');
+        const ds=String(dt.getDate()).padStart(2,'0')+'.'+String(dt.getMonth()+1).padStart(2,'0');
+        let tot=0;
+        const cells=lects.map(l=>{const h=Math.round((pbd[date][l.id]||0)*100)/100;tot+=h;return X(h||null,h?'N':null);});
+        out.push(R(X(ds),X(DOW[dt.getDay()]),...cells,X(Math.round(tot*100)/100,'NB')));
+      });
+      const pH=lects.map(l=>Math.round(priv.filter(pl=>pl.lectId===l.id).reduce((s,pl)=>s+toAcad(pl.duration),0)*100)/100);
+      const pC=lects.map((l,i)=>{const c=calcLect(l.id,month);return c?Math.round(c.privBase||0):Math.round(pH[i]*(l.ratePriv||0));});
+      out.push(R(X('סה"כ ש"ה כלי','T'),X(null,'T'),...pH.map(v=>X(v||null,v?'NB':'T')),X(Math.round(pH.reduce((s,v)=>s+v,0)*100)/100,'NB')));
+      out.push(R(X('תעריף כלי לש"ה (₪)','L'),X(null),...lects.map(l=>X(l.ratePriv||0,'M')),X(null)));
+      out.push(R(X('עלות כלי (₪)','T'),X(null,'T'),...pC.map(v=>X(v||null,v?'MB':'T')),X(pC.reduce((s,v)=>s+v,0),'MB')));
+      out.push(E);
+    }
+    // תוספות
+    const calcs=lects.map(l=>calcLect(l.id,month));
+    const mgmts=calcs.map(c=>c&&c.management>0?Math.round(c.management):0);
+    const trvs=calcs.map(c=>c&&c.travel>0?Math.round(c.travel):0);
+    if(mgmts.some(v=>v>0)||trvs.some(v=>v>0)){
+      out.push(R(X('תוספות','SC'),...lects.map(()=>X(null,'SC')),X(null,'SC')));
+      if(mgmts.some(v=>v>0))out.push(R(X('תוספת מנהלה (₪)','L'),X(null),...mgmts.map(v=>X(v||null,v?'M':null)),X(mgmts.reduce((s,v)=>s+v,0),'MB')));
+      if(trvs.some(v=>v>0))out.push(R(X('נסיעות (₪)','L'),X(null),...trvs.map(v=>X(v||null,v?'M':null)),X(trvs.reduce((s,v)=>s+v,0),'MB')));
+      out.push(E);
+    }
+    // סה"כ
+    const subs=calcs.map(c=>c?Math.round(c.subtotal):0);
+    const vats=calcs.map(c=>c?Math.round(c.vat):0);
+    const tots=calcs.map(c=>c?Math.round(c.total):0);
+    out.push(R(X('עלות לפני מע"מ (₪)','T'),X(null,'T'),...subs.map(v=>X(v||null,v?'MB':'T')),X(subs.reduce((s,v)=>s+v,0),'MB')));
+    if(vats.some(v=>v>0))out.push(R(X('מע"מ 18% (₪)','L'),X(null),...vats.map(v=>X(v||null,v?'M':null)),X(vats.reduce((s,v)=>s+v,0),'MB')));
+    out.push(R(X('סה"כ לתשלום (₪)','GR'),X(null,'GR'),...tots.map(v=>X(v||null,v?'MG':'GR')),X(tots.reduce((s,v)=>s+v,0),'MG')));
+    out.push(E);
+    out.push(R(X('סטטוס','L'),X(null),...lects.map(l=>X(stL((DB.payStatuses||{})[month+'_'+l.id]),'ST')),X(null)));
+    return`<Worksheet ss:Name="${sheetName}"><Table>${cw}${out.join('')}</Table></Worksheet>`;
+  }
+
+  // ── לשונית סיכום ──
+  function buildSummary(){
+    const allLids=[...new Set([...(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))),...(DB.privateLessons||[]).filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved').map(pl=>pl.lectId)].filter(Boolean))];
+    const lects=allLids.map(id=>getLect(id)).filter(Boolean);
+    lects.sort((a,b)=>{if(a.track!==b.track)return a.track==='m'?-1:1;if(a.type==='employee'&&b.type!=='employee')return -1;if(a.type!=='employee'&&b.type==='employee')return 1;return(a.name||'').localeCompare(b.name||'','he');});
+    const H=['שם','מסלול','סוג','ש"ה הוראה','עלות הוראה','ש"ה כלי','עלות כלי','מנהלה','נסיעות','לפני מע"מ','מע"מ','סה"כ לתשלום','סטטוס'];
+    const cw='<Column ss:Width="120"/><Column ss:Width="60"/><Column ss:Width="80"/><Column ss:Width="72"/><Column ss:Width="88"/><Column ss:Width="62"/><Column ss:Width="88"/><Column ss:Width="65"/><Column ss:Width="65"/><Column ss:Width="88"/><Column ss:Width="65"/><Column ss:Width="98"/><Column ss:Width="85"/>';
+    const tpM={'employee':'שכיר','freelance_vat':'מורשה','freelance_exempt':'פטור'};const trM={'m':'גברים','w':'נשים'};
+    const out=[];
+    out.push(R(X(`סיכום חודשי — ${ML}`,'TL'),...Array(H.length-1).fill(X(null,'TL'))));
+    out.push(R(...H.map(h=>X(h,'H'))));
+    let s=[0,0,0,0,0,0,0,0,0];
+    lects.forEach(l=>{
+      const c=calcLect(l.id,month);if(!c||c.total===0)return;
+      s[0]+=c.hrs;s[1]+=c.base;s[2]+=(c.privHrs||0);s[3]+=(c.privBase||0);s[4]+=c.management;s[5]+=c.travel;s[6]+=c.subtotal;s[7]+=c.vat;s[8]+=c.total;
+      out.push(R(X(l.name),X(trM[l.track]||l.track,'ST'),X(tpM[l.type]||l.type,'ST'),X(Math.round(c.hrs*100)/100,'N'),X(Math.round(c.base),'M'),X(c.privHrs>0?Math.round(c.privHrs*100)/100:null,c.privHrs>0?'N':null),X(c.privBase>0?Math.round(c.privBase):null,c.privBase>0?'M':null),X(c.management>0?Math.round(c.management):null,c.management>0?'M':null),X(c.travel>0?Math.round(c.travel):null,c.travel>0?'M':null),X(Math.round(c.subtotal),'MB'),X(c.vat>0?Math.round(c.vat):null,c.vat>0?'M':null),X(Math.round(c.total),'MB'),X(stL((DB.payStatuses||{})[month+'_'+l.id]),'ST')));
+    });
+    out.push(R(X('סה"כ','T'),X(null,'T'),X(null,'T'),X(Math.round(s[0]*100)/100,'NB'),X(Math.round(s[1]),'MB'),X(s[2]>0?Math.round(s[2]*100)/100:null,s[2]>0?'NB':'T'),X(s[3]>0?Math.round(s[3]):null,s[3]>0?'MB':'T'),X(s[4]>0?Math.round(s[4]):null,s[4]>0?'MB':'T'),X(s[5]>0?Math.round(s[5]):null,s[5]>0?'MB':'T'),X(Math.round(s[6]),'MB'),X(s[7]>0?Math.round(s[7]):null,s[7]>0?'MB':'T'),X(Math.round(s[8]),'MG'),X(null,'T')));
+    return`<Worksheet ss:Name="סיכום"><Table>${cw}${out.join('')}</Table></Worksheet>`;
+  }
+
+  // ── לשונית הוצאות נוספות ──
+  function buildMisc(){
+    const pmts=(DB.miscPayments||[]).filter(p=>p.month===month);
+    const H=['שם','תיאור','סכום (₪)','סטטוס','בנק','סניף','חשבון','הערות'];
+    const cw='<Column ss:Width="120"/><Column ss:Width="160"/><Column ss:Width="85"/><Column ss:Width="80"/><Column ss:Width="100"/><Column ss:Width="60"/><Column ss:Width="90"/><Column ss:Width="150"/>';
+    const stM={'pending':'ממתין','approved':'אושר','done':'שולם','received':'שולם+קבלה','invoice':'חשבונית התקבלה'};
+    const out=[];
+    out.push(R(X(`הוצאות נוספות — ${ML}`,'TL'),...Array(H.length-1).fill(X(null,'TL'))));
+    out.push(R(...H.map(h=>X(h,'H'))));
+    let tot=0;
+    if(pmts.length){
+      pmts.forEach(p=>{const b=parseBankStr(p.bankName||'');tot+=p.amount||0;out.push(R(X(p.name),X(p.description||''),X(Math.round(p.amount||0),'M'),X(stM[p.status]||p.status||'','ST'),X(b.bankName||p.bankName||''),X(p.branch||b.branch||''),X(p.account||b.account||''),X(p.notes||'')));});
+      out.push(R(X('סה"כ','T'),X(null,'T'),X(Math.round(tot),'MB'),X(null,'T'),X(null,'T'),X(null,'T'),X(null,'T'),X(null,'T')));
+    }else out.push(R(X('אין הוצאות נוספות לחודש זה')));
+    return`<Worksheet ss:Name="הוצאות נוספות"><Table>${cw}${out.join('')}</Table></Worksheet>`;
+  }
+
+  // ── לשונית בקרת שעות יומית ──
+  function buildDailyCtrl(){
+    const days=(DB.days||[]).filter(d=>d.date.startsWith(month)).sort((a,b)=>a.date.localeCompare(b.date));
+    const H=['תאריך','יום','מסלול','קבוצות','שעות מתוכננות','שעות בפועל','הפרש','סטטוס','הערה'];
+    const cw='<Column ss:Width="65"/><Column ss:Width="60"/><Column ss:Width="60"/><Column ss:Width="165"/><Column ss:Width="90"/><Column ss:Width="90"/><Column ss:Width="72"/><Column ss:Width="80"/><Column ss:Width="160"/>';
+    const trM={'m':'גברים','w':'נשים'};const stM={'pending':'ממתין לאישור','approved':'אושר','returned':'הוחזר'};
+    const out=[];
+    out.push(R(X(`בקרת שעות יומית — ${ML}`,'TL'),...Array(H.length-1).fill(X(null,'TL'))));
+    out.push(R(X('השוואת שעות מתוכננות (ממערכת השעות) לעומת שעות שנרשמו בפועל','L'),...Array(H.length-1).fill(X(null))));
+    out.push(R(...H.map(h=>X(h,'H'))));
+    days.forEach(d=>{
+      const dt=new Date(d.date+'T12:00:00');
+      const ds=String(dt.getDate()).padStart(2,'0')+'.'+String(dt.getMonth()+1).padStart(2,'0');
+      const grps=(d.groups||[]).map(g=>g.name).join(', ');
+      const sched=getSchedTotalHrs(d.dow,d.track);
+      const actual=Math.round((d.groups||[]).reduce((s,g)=>s+g.rows.reduce((s2,r)=>s2+(r.payHrs||0),0),0)*100)/100;
+      const diff=sched!=null?Math.round((actual-sched)*100)/100:null;
+      out.push(R(X(ds),X(DOW[dt.getDay()]),X(trM[d.track]||d.track,'ST'),X(grps),X(sched!=null?sched:'לא הוגדר',sched!=null?'N':'L'),X(actual,'N'),X(diff!=null?diff:null,diff!=null&&diff!==0?'WN':'N'),X(stM[d.dayApproval]||d.dayApproval,'ST'),X(d.principalNote||'')));
+    });
+    return`<Worksheet ss:Name="בקרת שעות"><Table>${cw}${out.join('')}</Table></Worksheet>`;
+  }
+
+  // ── לשונית סטטוס תשלומים ──
+  function buildPayStatus(){
+    const allLids=[...new Set([...(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))),...(DB.privateLessons||[]).filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved').map(pl=>pl.lectId)].filter(Boolean))];
+    const lects=allLids.map(id=>getLect(id)).filter(Boolean);
+    lects.sort((a,b)=>{if(a.track!==b.track)return a.track==='m'?-1:1;return(a.name||'').localeCompare(b.name||'','he');});
+    const H=['שם','מסלול','סוג','ש"ה כולל','סה"כ לתשלום','סטטוס','שם בנק','סניף','חשבון','הערת תשלום'];
+    const cw='<Column ss:Width="120"/><Column ss:Width="60"/><Column ss:Width="80"/><Column ss:Width="65"/><Column ss:Width="92"/><Column ss:Width="100"/><Column ss:Width="110"/><Column ss:Width="60"/><Column ss:Width="95"/><Column ss:Width="135"/>';
+    const tpM={'employee':'שכיר','freelance_vat':'מורשה עוסק','freelance_exempt':'פטור ממע"מ'};const trM={'m':'גברים','w':'נשים'};
+    const stFull={'pending':'ממתין לאישור','approved':'אושר','done':'שולם','received':'שולם + קבלה ✓'};
+    const out=[];
+    out.push(R(X(`סטטוס תשלומים — ${ML}`,'TL'),...Array(H.length-1).fill(X(null,'TL'))));
+    out.push(R(...H.map(h=>X(h,'H'))));
+    lects.forEach(l=>{
+      const c=calcLect(l.id,month);if(!c||c.total===0)return;
+      const st=(DB.payStatuses||{})[month+'_'+l.id]||'pending';
+      const b=parseBankStr(l.bank||'');
+      const totalHrs=Math.round(((c.hrs||0)+(c.privHrs||0))*100)/100;
+      out.push(R(X(l.name),X(trM[l.track]||l.track,'ST'),X(tpM[l.type]||l.type,'ST'),X(totalHrs,'N'),X(Math.round(c.total),'MB'),X(stFull[st]||st,'ST'),X(b.bankName||''),X(b.branch||''),X(b.account||''),(X((DB.payNotes||{})[month+'_'+l.id]||''))));
+    });
+    return`<Worksheet ss:Name="סטטוס תשלומים"><Table>${cw}${out.join('')}</Table></Worksheet>`;
+  }
+
+  const styles=`<Styles>
+<Style ss:ID="Default"><Font ss:FontName="Arial" ss:Size="10"/></Style>
+<Style ss:ID="TL"><Font ss:FontName="Arial" ss:Bold="1" ss:Size="12" ss:Color="#FFFFFF"/><Interior ss:Color="#10717E" ss:Pattern="Solid"/></Style>
+<Style ss:ID="H"><Font ss:FontName="Arial" ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#10717E" ss:Pattern="Solid"/><Alignment ss:Horizontal="Center" ss:Vertical="Center"/></Style>
+<Style ss:ID="SC"><Font ss:FontName="Arial" ss:Bold="1" ss:Color="#085041"/><Interior ss:Color="#E8F5F3" ss:Pattern="Solid"/></Style>
+<Style ss:ID="T"><Font ss:FontName="Arial" ss:Bold="1"/><Interior ss:Color="#F0FAF8" ss:Pattern="Solid"/></Style>
+<Style ss:ID="GR"><Font ss:FontName="Arial" ss:Bold="1" ss:Color="#10717E" ss:Size="11"/><Interior ss:Color="#C5E8E3" ss:Pattern="Solid"/></Style>
+<Style ss:ID="L"><Font ss:FontName="Arial" ss:Color="#777777" ss:Italic="1"/></Style>
+<Style ss:ID="N"><Font ss:FontName="Arial"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="0.00"/></Style>
+<Style ss:ID="NB"><Font ss:FontName="Arial" ss:Bold="1"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="0.00"/></Style>
+<Style ss:ID="M"><Font ss:FontName="Arial"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="#,##0"/></Style>
+<Style ss:ID="MB"><Font ss:FontName="Arial" ss:Bold="1"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="#,##0"/></Style>
+<Style ss:ID="MG"><Font ss:FontName="Arial" ss:Bold="1" ss:Color="#10717E" ss:Size="11"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="#,##0"/></Style>
+<Style ss:ID="ST"><Font ss:FontName="Arial"/><Alignment ss:Horizontal="Center"/></Style>
+<Style ss:ID="WN"><Font ss:FontName="Arial" ss:Bold="1" ss:Color="#A32D2D"/><Alignment ss:Horizontal="Center"/><NumberFormat ss:Format="0.00"/></Style>
+</Styles>`;
+
+  const xml=`<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${styles}${buildTrack('m','גברים')}${buildTrack('w','נשים')}${buildSummary()}${buildMisc()}${buildDailyCtrl()}${buildPayStatus()}</Workbook>`;
+  const blob=new Blob(['﻿'+xml],{type:'application/vnd.ms-excel;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`בקרה_חודשית_${month}.xls`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
 function _downloadXls(data,filename){
   let xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="פירוט"><Table>';
   // עמודות: שם המוטב(150) | בנק(60) | מספר סניף(70) | מספר חשבון(110) | מהות העברה(150) | סכום ₪(80)
