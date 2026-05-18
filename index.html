@@ -1536,6 +1536,46 @@ var GANTT_HOLS = {
   '2026-05-11':'ל"ג בעומר','2026-05-21':'ערב שבועות','2026-05-22':'שבועות'
 };
 
+// ── המרה לתאריך עברי מתוך HEB_CAL ──
+var _HEB_NUMS=['','א\'','ב\'','ג\'','ד\'','ה\'','ו\'','ז\'','ח\'','ט\'','י\'','י"א','י"ב','י"ג','י"ד','ט"ו','ט"ז','י"ז','י"ח','י"ט','כ\'','כ"א','כ"ב','כ"ג','כ"ד','כ"ה','כ"ו','כ"ז','כ"ח','כ"ט','ל\''];
+function toHebDate(dateStr){
+  for(var yr in HEB_CAL){
+    var yd=HEB_CAL[yr];
+    for(var mi=0;mi<yd.months.length;mi++){
+      var m=yd.months[mi];
+      if(dateStr>=m.from&&dateStr<=m.to){
+        var d0=new Date(m.from+'T12:00:00'),d1=new Date(dateStr+'T12:00:00');
+        var day=Math.round((d1-d0)/86400000)+1;
+        var num=_HEB_NUMS[day]||String(day);
+        // month name: strip Hebrew year suffix (e.g. "אלול תשפ"ה" → "אלול")
+        var parts=m.heb.split(' ');
+        var mName=(parts.length>1&&parts[parts.length-1].charCodeAt(0)===1514)?parts.slice(0,-1).join(' '):m.heb;
+        return num+' '+mName;
+      }
+    }
+  }
+  return '';
+}
+
+// ── מספר מפגש עבור קבוצה לפי תאריך (מתוכנן + בוצע, ללא כפל) ──
+function getGroupSessionNum(grpName,date,track){
+  var count=0;
+  // מפגשים בפועל מאושרים לפני תאריך זה
+  (DB.days||[]).forEach(function(d){
+    if(d.date>=date||d.dayApproval!=='approved')return;
+    if((d.groups||[]).some(function(g){return g.name===grpName;}))count++;
+  });
+  // מתוכננים לפני תאריך זה, שלא בוצעו בפועל
+  (DB.ganttPlanned||[]).forEach(function(p){
+    if(p.date>=date)return;
+    var inPlan=track==='m'?(p.grpsM||[]).indexOf(grpName)>=0:(p.grpsW||[]).indexOf(grpName)>=0;
+    if(!inPlan)return;
+    var hasActual=(DB.days||[]).some(function(d){return d.date===p.date&&d.dayApproval==='approved'&&(d.groups||[]).some(function(g){return g.name===grpName;});});
+    if(!hasActual)count++;
+  });
+  return count+1;
+}
+
 function ganttDayClass(d){
   var dn = new Date(d+'T12:00:00').getDay();
   if(dn===6) return 'sat';
@@ -1561,13 +1601,13 @@ function renderGantt(){
     +'.gc{border-collapse:collapse;font-size:10px;min-width:100%}'
     +'.gc td,.gc th{border:0.5px solid var(--color-border-tertiary);padding:1px 2px;vertical-align:top}'
     +'.gc .mhdr{background:#10717E;color:#fff;font-size:11px;font-weight:500;padding:3px 8px;text-align:right}'
-    +'.gc .dlbl{background:var(--color-background-secondary);text-align:center;min-width:30px;font-size:9px;line-height:1.3;padding:2px 1px}'
+    +'.gc .dlbl{background:var(--color-background-secondary);text-align:center;min-width:42px;font-size:9px;line-height:1.3;padding:2px 1px}'
     +'.gc .dlbl.sat{background:#F7C1C1;color:#791F1F}'
     +'.gc .dlbl.hol{background:#FAEEDA;color:#633806}'
     +'.gc .dlbl.erev{background:#FEF3E2;color:#854F0B}'
     +'.gc .dlbl.fri{background:#FDF6E3;color:#854F0B}'
     +'.gc .rlbl{background:var(--color-background-secondary);text-align:right;padding:3px 6px;min-width:70px;font-size:10px;font-weight:500;white-space:nowrap}'
-    +'.gc .cell{min-width:30px;text-align:center;padding:2px 1px;cursor:pointer;vertical-align:top}'
+    +'.gc .cell{min-width:42px;text-align:center;padding:2px 1px;cursor:pointer;vertical-align:top}'
     +'.gc .cell:hover{background:rgba(16,113,126,0.07)}'
     +'.gc .cell.sat{background:rgba(247,193,193,0.25)}'
     +'.gc .cell.hol{background:rgba(250,238,218,0.4)}'
@@ -1608,8 +1648,9 @@ function renderGantt(){
       var dc=ganttDayClass(d);
       var p=d.split('-');var lz=parseInt(p[2])+'.'+parseInt(p[1]);
       var dn=new Date(d+'T12:00:00').getDay();
-      var hn=GANTT_HOLS[d]?'<br><span style="font-size:7px;overflow:hidden;display:block;max-width:28px">'+GANTT_HOLS[d].slice(0,4)+'</span>':'';
-      html+='<th class="dlbl '+dc+'">'+DOW[dn]+'<br>'+lz+hn+'</th>';
+      var hn=GANTT_HOLS[d]?'<br><span style="font-size:7px;overflow:hidden;display:block;max-width:38px">'+GANTT_HOLS[d].slice(0,4)+'</span>':'';
+      var hd=toHebDate(d);
+      html+='<th class="dlbl '+dc+'">'+DOW[dn]+'<br>'+lz+(hd?'<br><span style="font-size:6px;display:block;overflow:hidden;white-space:nowrap;max-width:40px;opacity:0.85">'+hd+'</span>':'')+hn+'</th>';
     });
     html+='</tr>';
     // Activity row
@@ -1627,8 +1668,9 @@ function renderGantt(){
           var grps=ad.groups||[];
           if(grps.length){
             grps.forEach(function(g){
-              var short=(g.name||'').replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,8);
-              html+='<span class="bm '+cls+'" title="'+(g.name||'')+'">'+short+'</span>';
+              var num=getGroupSessionNum(g.name,ad.date,ad.track);
+              var short=(g.name||'').replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,7);
+              html+='<span class="bm '+cls+'" title="'+(g.name||'')+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';
             });
           } else {
             html+='<span class="bm '+cls+'">'+(ad.track==='\u05de'?'\u05d2\u05d1\u05e8\u05d9\u05dd':'\u05e0\u05e9\u05d9\u05dd')+'</span>';
@@ -1638,8 +1680,8 @@ function renderGantt(){
         plannedItems.forEach(function(p){
           if(p.event){html+='<span class="bm ev" title="'+p.event+'">'+p.event.slice(0,5)+'</span>';return;}
           var isLate=p.status==='planned'&&p.date<today&&(new Date(today)-new Date(p.date))>7*24*3600*1000;
-          p.grpsM.forEach(function(g){var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').slice(0,8);html+='<span class="bm '+(isLate?'late':'pm')+'" title="'+g+'">'+short+'</span>';});
-          p.grpsW.forEach(function(g){var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,8);html+='<span class="bm '+(isLate?'late':'pw')+'" title="'+g+'">'+short+'</span>';});
+          p.grpsM.forEach(function(g){var num=getGroupSessionNum(g,p.date,'m');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pm')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
+          p.grpsW.forEach(function(g){var num=getGroupSessionNum(g,p.date,'w');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pw')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
         });
       } else {
         html+='<span style="color:var(--color-border-secondary);font-size:12px;line-height:1">+</span>';
