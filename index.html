@@ -1773,7 +1773,7 @@ function importGanttExcel(input){
     var imported=0,cleared=0;
     for(var ri=1;ri<rows.length;ri++){
       var cells=rows[ri].getElementsByTagName('Cell');
-      var cellData=[]; var lastIdx=0;
+      var cellData=[]; var lastIdx=-1;
       for(var ci=0;ci<cells.length;ci++){
         var idxA=cells[ci].getAttribute('ss:Index')||cells[ci].getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet','Index');
         if(idxA)lastIdx=parseInt(idxA)-1; else lastIdx++;
@@ -1894,8 +1894,8 @@ function renderGantt(){
         plannedItems.forEach(function(p){
           if(p.event){html+='<span class="bm ev" title="'+p.event+'">'+p.event.slice(0,5)+'</span>';return;}
           var isLate=p.status==='planned'&&p.date<today&&(new Date(today)-new Date(p.date))>7*24*3600*1000;
-          p.grpsM.forEach(function(g){var num=getGroupSessionNum(g,p.date,'m');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pm')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
-          p.grpsW.forEach(function(g){var num=getGroupSessionNum(g,p.date,'w');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pw')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
+          (p.grpsM||[]).forEach(function(g){var num=getGroupSessionNum(g,p.date,'m');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05e7\u05d5\u05e8\u05e1\u05d9 \u05d7\u05d5\u05e8\u05e3 - ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pm')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
+          (p.grpsW||[]).forEach(function(g){var num=getGroupSessionNum(g,p.date,'w');var short=g.replace('\u05e9\u05e0\u05d4 ','\u05e9 ').replace('\u05de\u05e1\u05dc\u05d5\u05dc ','').slice(0,7);html+='<span class="bm '+(isLate?'late':'pw')+'" title="'+g+' \u2014 \u05de\u05e4\u05d2\u05e9 '+num+'">'+num+' '+short+'</span>';});
         });
       } else {
         html+='<span style="color:var(--color-border-secondary);font-size:12px;line-height:1">+</span>';
