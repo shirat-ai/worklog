@@ -315,7 +315,11 @@ tr.drag-over td{border-top:2px solid #10717E}
           <option value="5790">תש"ץ 2029-2030</option>
         </select>
       </div>
-      <button class="btn btn-ok" onclick="openGanttModal(new Date().toISOString().slice(0,10),null)">הוסף מפגש</button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-ok" onclick="openGanttModal(new Date().toISOString().slice(0,10),null)">+ מפגש</button>
+        <button class="btn" style="background:#F0F9F8;border:0.5px solid #A8D5D0;color:#10717E" onclick="exportGanttExcel()">📥 ייצוא לאקסל</button>
+        <label class="btn" style="background:#F0F9F8;border:0.5px solid #A8D5D0;color:#10717E;cursor:pointer;margin:0">📤 ייבוא מאקסל<input type="file" accept=".xls,.xml" style="display:none" onchange="importGanttExcel(this)"></label>
+      </div>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;font-size:10px">
       <span style="display:inline-flex;align-items:center;gap:3px"><span style="width:10px;height:10px;background:#E6F1FB;border:0.5px solid #B5D4F4;border-radius:2px;display:inline-block"></span>מתוכנן גברים</span>
@@ -1542,7 +1546,25 @@ var GANTT_HOLS = {
   '2026-04-04':'חוה"מ','2026-04-05':'חוה"מ','2026-04-06':'חוה"מ','2026-04-07':'חוה"מ',
   '2026-04-08':'שביעי פסח','2026-04-09':'אסרו חג',
   '2026-04-21':'יום הזיכרון','2026-04-22':'יום העצמאות',
-  '2026-05-11':'ל"ג בעומר','2026-05-21':'ערב שבועות','2026-05-22':'שבועות'
+  '2026-05-11':'ל"ג בעומר','2026-05-21':'ערב שבועות','2026-05-22':'שבועות',
+  '2026-07-20':'ט\' באב',
+  // 5787 (2026-2027)
+  '2026-09-06':'ערב ר"ה','2026-09-07':'ר"ה','2026-09-08':'ר"ה',
+  '2026-09-15':'ערב יוה"כ','2026-09-16':'יוה"כ',
+  '2026-09-20':'ערב סוכות','2026-09-21':'סוכות','2026-09-22':'סוכות',
+  '2026-09-23':'חוה"מ','2026-09-24':'חוה"מ','2026-09-25':'חוה"מ','2026-09-26':'חוה"מ',
+  '2026-09-27':'הושענא רבה','2026-09-28':'שמחת תורה',
+  '2026-11-28':'ערב חנוכה','2026-11-29':'חנוכה','2026-11-30':'חנוכה',
+  '2026-12-01':'חנוכה','2026-12-02':'חנוכה','2026-12-03':'חנוכה','2026-12-04':'חנוכה','2026-12-05':'חנוכה','2026-12-06':'חנוכה',
+  '2026-12-13':'צום עשרה בטבת',
+  '2027-01-16':'ט"ו בשבט',
+  '2027-03-14':'תענית אסתר','2027-03-15':'פורים','2027-03-16':'שושן פורים',
+  '2027-04-13':'ערב פסח','2027-04-14':'פסח','2027-04-15':'פסח',
+  '2027-04-16':'חוה"מ','2027-04-17':'חוה"מ','2027-04-18':'חוה"מ','2027-04-19':'חוה"מ',
+  '2027-04-20':'שביעי פסח','2027-04-21':'אסרו חג',
+  '2027-05-02':'יום הזיכרון','2027-05-03':'יום העצמאות',
+  '2027-05-16':'ל"ג בעומר','2027-06-01':'ערב שבועות','2027-06-02':'שבועות',
+  '2027-08-02':'ט\' באב'
 };
 
 // ── המרה לתאריך עברי מתוך HEB_CAL ──
@@ -1588,7 +1610,7 @@ function getGroupSessionNum(grpName,date,track){
 function ganttDayClass(d){
   var dn = new Date(d+'T12:00:00').getDay();
   if(dn===6) return 'sat';
-  if(GANTT_HOLS[d] && ['ר"ה','יוה"כ','סוכות','שמחת תורה','חנוכה','פורים','פסח','שביעי פסח','שבועות'].some(function(h){return GANTT_HOLS[d]===h;})) return 'hol';
+  if(GANTT_HOLS[d] && ['ר"ה','יוה"כ','סוכות','שמחת תורה','חנוכה','פורים','פסח','שביעי פסח','שבועות','ט\' באב','תענית אסתר','צום עשרה בטבת'].some(function(h){return GANTT_HOLS[d]===h;})) return 'hol';
   if(GANTT_HOLS[d] && (GANTT_HOLS[d].startsWith('ערב')||GANTT_HOLS[d].startsWith('חוה"מ')||GANTT_HOLS[d].startsWith('הושענא'))) return 'erev';
   if(dn===5) return 'fri';
   return '';
@@ -1598,6 +1620,189 @@ function ganttDRange(from,to){
   var arr=[]; var d=new Date(from+'T12:00:00'); var e=new Date(to+'T12:00:00');
   while(d<=e){arr.push(d.toISOString().slice(0,10));d.setDate(d.getDate()+1);}
   return arr;
+}
+
+function exportGanttExcel(){
+  var yr=parseInt((document.getElementById('gantt-year')||{}).value||5786);
+  var ydata=HEB_CAL[yr]; if(!ydata){alert('אין נתונים לשנה זו');return;}
+  var planned=DB.ganttPlanned||[];
+  var DOW_S=["א'","ב'","ג'","ד'","ה'","ו'","ש'"];
+  function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  var planMap={};
+  planned.forEach(function(p){planMap[p.date]=p;});
+  var allGroups=[];
+  ((DB.settings&&DB.settings.groups)||[]).forEach(function(g){allGroups.push(g.name||g);});
+
+  var styles='<Styles>'
+    +'<Style ss:ID="TH"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Interior ss:Color="#10717E" ss:Pattern="Solid"/><Font ss:Color="#FFFFFF" ss:Bold="1" ss:Size="10"/></Style>'
+    +'<Style ss:ID="DH"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8"/><Interior ss:Color="#F5F5F5" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="SAT"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#791F1F"/><Interior ss:Color="#F7C1C1" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="HOL"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#633806"/><Interior ss:Color="#FAEEDA" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="FRI"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#854F0B"/><Interior ss:Color="#FDF6E3" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="NOR"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8"/></Style>'
+    +'<Style ss:ID="GM"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#0C447C"/><Interior ss:Color="#E6F1FB" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="GW"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#72243E"/><Interior ss:Color="#FBEAF0" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="DONE"><Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="8" ss:Color="#27500A" ss:Bold="1"/><Interior ss:Color="#EAF3DE" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="RL"><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Font ss:Size="9" ss:Bold="1"/><Interior ss:Color="#F0F0F0" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IH"><Alignment ss:Horizontal="Center" ss:Vertical="Center"/><Font ss:Bold="1" ss:Size="9" ss:Color="#FFFFFF"/><Interior ss:Color="#333333" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="ID"><Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="9"/></Style>'
+    +'<Style ss:ID="IDSAT"><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Font ss:Size="9" ss:Color="#791F1F"/><Interior ss:Color="#F7C1C1" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IDHOL"><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Font ss:Size="9" ss:Color="#633806"/><Interior ss:Color="#FAEEDA" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IDFRI"><Alignment ss:Horizontal="Right" ss:Vertical="Center"/><Font ss:Size="9" ss:Color="#854F0B"/><Interior ss:Color="#FDF6E3" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IDGM"><Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="9" ss:Color="#0C447C"/><Interior ss:Color="#E6F1FB" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IDGW"><Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="9" ss:Color="#72243E"/><Interior ss:Color="#FBEAF0" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="IDDONE"><Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="9" ss:Color="#27500A"/><Interior ss:Color="#EAF3DE" ss:Pattern="Solid"/></Style>'
+    +'<Style ss:ID="WARN"><Alignment ss:Horizontal="Right" ss:Vertical="Center" ss:WrapText="1"/><Font ss:Size="9" ss:Color="#8B4513" ss:Bold="1"/><Interior ss:Color="#FFF8E7" ss:Pattern="Solid"/></Style>'
+    +'</Styles>';
+
+  // === Sheet 1: visual (printable) ===
+  var colDefs='<Column ss:Width="55"/>';
+  for(var c=0;c<31;c++) colDefs+='<Column ss:Width="28"/>';
+  var s1='<Worksheet ss:Name="גאנט להדפסה"><Table ss:DefaultRowHeight="28">'+colDefs;
+
+  ydata.months.forEach(function(month){
+    var days=ganttDRange(month.from,month.to);
+    s1+='<Row ss:Height="18"><Cell ss:StyleID="TH" ss:MergeAcross="'+days.length+'"><Data ss:Type="String">'+esc(month.heb)+'</Data></Cell></Row>';
+    s1+='<Row ss:Height="44"><Cell ss:StyleID="RL"><Data ss:Type="String">יום</Data></Cell>';
+    days.forEach(function(d){
+      var dc=ganttDayClass(d);
+      var sid=dc==='sat'?'SAT':((dc==='hol'||dc==='erev')?'HOL':(dc==='fri'?'FRI':'DH'));
+      var pts=d.split('-');var dn=new Date(d+'T12:00:00').getDay();
+      var lz=parseInt(pts[2])+'.'+parseInt(pts[1]);var hd=toHebDate(d);
+      var hol=GANTT_HOLS[d]?'\n'+GANTT_HOLS[d]:'';
+      s1+='<Cell ss:StyleID="'+sid+'"><Data ss:Type="String">'+DOW_S[dn]+'\n'+lz+(hd?'\n'+esc(hd):'')+esc(hol)+'</Data></Cell>';
+    });
+    s1+='</Row>';
+    // Men row
+    s1+='<Row ss:Height="44"><Cell ss:StyleID="RL"><Data ss:Type="String">גברים</Data></Cell>';
+    days.forEach(function(d){
+      var dc=ganttDayClass(d);
+      var actM=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='m';});
+      var plan=planMap[d]; var text='',sid='NOR';
+      if(actM.length){sid='DONE';actM.forEach(function(a){(a.groups||[]).forEach(function(g){text+=(text?'\n':'')+(g.name||'').slice(0,10);});if(!(a.groups||[]).length)text+=(text?'\n':'')+'גברים';});}
+      else if(plan&&(plan.grpsM||[]).length){sid=dc==='sat'?'SAT':'GM';(plan.grpsM||[]).forEach(function(g){text+=(text?'\n':'')+g.slice(0,10);});}
+      else{sid=dc==='sat'?'SAT':(dc==='hol'||dc==='erev'?'HOL':(dc==='fri'?'FRI':'NOR'));}
+      s1+='<Cell ss:StyleID="'+sid+'"><Data ss:Type="String">'+esc(text)+'</Data></Cell>';
+    });
+    s1+='</Row>';
+    // Women row
+    s1+='<Row ss:Height="44"><Cell ss:StyleID="RL"><Data ss:Type="String">נשים</Data></Cell>';
+    days.forEach(function(d){
+      var dc=ganttDayClass(d);
+      var actW=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='w';});
+      var plan=planMap[d]; var text='',sid='NOR';
+      if(actW.length){sid='DONE';actW.forEach(function(a){(a.groups||[]).forEach(function(g){text+=(text?'\n':'')+(g.name||'').slice(0,10);});if(!(a.groups||[]).length)text+=(text?'\n':'')+'נשים';});}
+      else if(plan&&(plan.grpsW||[]).length){sid=dc==='sat'?'SAT':'GW';(plan.grpsW||[]).forEach(function(g){text+=(text?'\n':'')+g.slice(0,10);});}
+      else{sid=dc==='sat'?'SAT':(dc==='hol'||dc==='erev'?'HOL':(dc==='fri'?'FRI':'NOR'));}
+      s1+='<Cell ss:StyleID="'+sid+'"><Data ss:Type="String">'+esc(text)+'</Data></Cell>';
+    });
+    s1+='</Row><Row ss:Height="4"></Row>';
+  });
+  s1+='</Table></Worksheet>';
+
+  // === Sheet 2: import/export table ===
+  var allDates=[];
+  ydata.months.forEach(function(month){ganttDRange(month.from,month.to).forEach(function(d){allDates.push(d);});});
+  var s2='<Worksheet ss:Name="ייבוא ועריכה"><Table>'
+    +'<Column ss:Width="105"/><Column ss:Width="38"/><Column ss:Width="200"/><Column ss:Width="200"/><Column ss:Width="130"/><Column ss:Width="80"/>';
+  s2+='<Row ss:Height="20">'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">תאריך</Data></Cell>'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">יום</Data></Cell>'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">קבוצות גברים (מופרדות בפסיק)</Data></Cell>'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">קבוצות נשים (מופרדות בפסיק)</Data></Cell>'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">אירוע</Data></Cell>'
+    +'<Cell ss:StyleID="IH"><Data ss:Type="String">עלות משוערת ₪</Data></Cell>'
+    +'</Row>';
+  var today=new Date().toISOString().slice(0,10);
+  allDates.forEach(function(d){
+    var dc=ganttDayClass(d);var dn=new Date(d+'T12:00:00').getDay();
+    var plan=planMap[d];
+    var actual=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved';});
+    var isActual=actual.length>0;
+    var rs=isActual?'IDDONE':(dc==='sat'?'IDSAT':(dc==='hol'||dc==='erev'?'IDHOL':(dc==='fri'?'IDFRI':(plan&&((plan.grpsM||[]).length)?'IDGM':(plan&&(plan.grpsW||[]).length?'IDGW':'ID')))));
+    var dateCell=isActual?d+' (בוצע)':d;
+    var mGrps='',wGrps='',evt='',cost='';
+    if(isActual){
+      var mA=[],wA=[];
+      actual.forEach(function(a){if(a.track==='m'){(a.groups||[]).forEach(function(g){mA.push(g.name||'');});}else{(a.groups||[]).forEach(function(g){wA.push(g.name||'');});}});
+      mGrps=mA.join(', ');wGrps=wA.join(', ');
+    }else if(plan){
+      if(plan.event)evt=plan.event;
+      else{mGrps=(plan.grpsM||[]).join(', ');wGrps=(plan.grpsW||[]).join(', ');}
+      if(plan.cost)cost=String(plan.cost);
+    }
+    s2+='<Row>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+esc(dateCell)+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+DOW_S[dn]+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+esc(mGrps)+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+esc(wGrps)+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+esc(evt)+'</Data></Cell>'
+      +'<Cell ss:StyleID="'+rs+'"><Data ss:Type="String">'+esc(cost)+'</Data></Cell>'
+      +'</Row>';
+  });
+  var grpInstr=allGroups.length?'שמות קבוצות: '+allGroups.join(', ')+'. ':'' ;
+  s2+='<Row ss:Height="65"><Cell ss:StyleID="WARN" ss:MergeAcross="5"><Data ss:Type="String">הוראות ייבוא: '+esc(grpInstr)+'הפרד קבוצות בפסיק. שורות "בוצע" לא ישתנו. לייצוא: שמור קובץ → לחץ "📤 ייבא מאקסל" בגאנט → בחר קובץ.</Data></Cell></Row>';
+  s2+='</Table></Worksheet>';
+
+  var xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">'+styles+s1+s2+'</Workbook>';
+  var blob=new Blob(['﻿'+xml],{type:'application/vnd.ms-excel;charset=utf-8'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='גאנט_'+yr+'.xls';a.click();
+  setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+}
+
+function importGanttExcel(input){
+  var file=input.files[0]; if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    var text=e.target.result;
+    if(text.charCodeAt(0)===0xFEFF)text=text.slice(1);
+    var parser=new DOMParser();
+    var xmlDoc=parser.parseFromString(text,'text/xml');
+    if(xmlDoc.querySelector('parsererror')){alert('שגיאה בפענוח הקובץ. ודא שהקובץ נשמר ב-XLS (Excel 97-2003)');return;}
+    var worksheets=xmlDoc.getElementsByTagName('Worksheet');
+    var targetWS=null;
+    for(var i=0;i<worksheets.length;i++){
+      var nm=worksheets[i].getAttribute('ss:Name')||worksheets[i].getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet','Name')||'';
+      if(nm.indexOf('ייבוא')>=0){targetWS=worksheets[i];break;}
+    }
+    if(!targetWS){alert('לא נמצא גיליון "ייבוא ועריכה". ודא שהקובץ יוצא ממערכת זו.');return;}
+    var rows=targetWS.getElementsByTagName('Row');
+    if(rows.length<2){alert('הקובץ ריק');return;}
+    var newPlanned=(DB.ganttPlanned||[]).slice();
+    var today2=new Date().toISOString().slice(0,10);
+    var imported=0,cleared=0;
+    for(var ri=1;ri<rows.length;ri++){
+      var cells=rows[ri].getElementsByTagName('Cell');
+      var cellData=[]; var lastIdx=0;
+      for(var ci=0;ci<cells.length;ci++){
+        var idxA=cells[ci].getAttribute('ss:Index')||cells[ci].getAttributeNS('urn:schemas-microsoft-com:office:spreadsheet','Index');
+        if(idxA)lastIdx=parseInt(idxA)-1; else lastIdx++;
+        var dataEl=cells[ci].getElementsByTagName('Data')[0];
+        cellData[lastIdx]=(dataEl?dataEl.textContent:'');
+      }
+      var rawDate=(cellData[0]||'').trim();
+      if(rawDate.indexOf('בוצע')>=0)continue;
+      if(!rawDate.match(/^\d{4}-\d{2}-\d{2}$/))continue;
+      var mGrpsStr=(cellData[2]||'').trim();
+      var wGrpsStr=(cellData[3]||'').trim();
+      var evt=(cellData[4]||'').trim();
+      var costStr=(cellData[5]||'').trim();
+      var hadPlan=newPlanned.some(function(p){return p.date===rawDate;});
+      newPlanned=newPlanned.filter(function(p){return p.date!==rawDate;});
+      if(!mGrpsStr&&!wGrpsStr&&!evt){if(hadPlan)cleared++;continue;}
+      var grpsM=mGrpsStr?mGrpsStr.split(',').map(function(s){return s.trim();}).filter(Boolean):[];
+      var grpsW=wGrpsStr?wGrpsStr.split(',').map(function(s){return s.trim();}).filter(Boolean):[];
+      var cost=parseFloat(costStr)||0;
+      newPlanned.push({id:'imp_'+rawDate+'_'+ri,date:rawDate,grpsM:grpsM,grpsW:grpsW,event:evt||null,status:rawDate<today2?'done':'planned',cost:cost||null});
+      imported++;
+    }
+    if(imported===0&&cleared===0){alert('לא נמצאו שינויים לייבוא');input.value='';return;}
+    if(confirm('ייבוא: '+imported+' ימים'+(cleared?' ו-'+cleared+' נמחקו':'')+'. להמשיך?')){
+      DB.ganttPlanned=newPlanned;saveDB();renderGantt();alert('הייבוא הושלם!');
+    }
+    input.value='';
+  };
+  reader.readAsText(file,'utf-8');
 }
 
 function renderGantt(){
