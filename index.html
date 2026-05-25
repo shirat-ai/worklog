@@ -965,8 +965,10 @@ function renderAdminHours(){
       var overrides=hrs._overrides||{};
       var dayData=_normAdminDay(hrs[d])||[];
       var sl0=dayData[0]||{start:'',end:''};
-      var sl1=dayData[1]||null;
-      var calcH=calcSlotHrs(sl0.start||'',sl0.end||'')+(sl1?calcSlotHrs(sl1.start||'',sl1.end||''):0);
+      var sl1=dayData[1]||{start:'',end:''};
+      var h0=calcSlotHrs(sl0.start||'',sl0.end||'');
+      var h1=calcSlotHrs(sl1.start||'',sl1.end||'');
+      var calcH=h0+h1;
       var ovD=overrides[d]!==undefined?parseFloat(overrides[d]):null;
       totCalc[si]+=(ovD!==null?ovD:calcH);
       var approved=(DB.adminHoursStatus||{})[key]==='approved';
@@ -974,42 +976,49 @@ function renderAdminHours(){
       var tc=row.insertCell();
       tc.style.cssText='padding:2px 4px;border-right:0.5px solid var(--color-border-tertiary);vertical-align:middle';
 
-      // משמרת ראשונה
-      var r0=document.createElement('div');
-      r0.style.cssText='display:flex;align-items:center;gap:2px';
-      r0.appendChild(mkTS(sl0.start,function(s0start){return function(){updateAdminSlotNew(s0start.sid,s0start.mo,s0start.d2,0,'start',this.value);};}({sid:s.id,mo:month,d2:d}),approved));
-      var dash0=document.createElement('span');dash0.textContent='–';dash0.style.cssText='color:var(--color-text-tertiary);font-size:10px';r0.appendChild(dash0);
-      r0.appendChild(mkTS(sl0.end,function(s0end){return function(){updateAdminSlotNew(s0end.sid,s0end.mo,s0end.d2,0,'end',this.value);};}({sid:s.id,mo:month,d2:d}),approved));
-      if((sl0.start||sl0.end)&&!approved){
-        var x0=document.createElement('button');x0.textContent='×';x0.style.cssText='font-size:10px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 1px;line-height:1';
-        (function(sid,mo,d2){x0.onclick=function(){clearAdminSlot(sid,mo,d2,0);};})(s.id,month,d);
-        r0.appendChild(x0);
+      function mkShift(sl,slIdx,h){
+        var r=document.createElement('div');
+        r.style.cssText='display:flex;align-items:center;gap:2px'+(slIdx>0?';margin-top:1px':'');
+        var lbl=document.createElement('span');
+        lbl.textContent=slIdx===0?'א:':'ב:';
+        lbl.style.cssText='font-size:9px;color:var(--color-text-tertiary);width:13px;flex-shrink:0;font-weight:500';
+        r.appendChild(lbl);
+        r.appendChild(mkTS(sl.start,function(ctx){return function(){updateAdminSlotNew(ctx.sid,ctx.mo,ctx.d2,ctx.si,'start',this.value);};}({sid:s.id,mo:month,d2:d,si:slIdx}),approved));
+        var dash=document.createElement('span');dash.textContent='–';dash.style.cssText='color:var(--color-text-tertiary);font-size:10px';r.appendChild(dash);
+        r.appendChild(mkTS(sl.end,function(ctx){return function(){updateAdminSlotNew(ctx.sid,ctx.mo,ctx.d2,ctx.si,'end',this.value);};}({sid:s.id,mo:month,d2:d,si:slIdx}),approved));
+        if(h>0){
+          var ch=document.createElement('span');
+          ch.textContent=h.toFixed(2).replace(/\.?0+$/,'')+'ש\'';
+          ch.style.cssText='font-size:9px;color:#10717E;font-weight:600;margin-right:1px';
+          r.appendChild(ch);
+        }
+        if((sl.start||sl.end)&&!approved){
+          var xb=document.createElement('button');xb.textContent='×';xb.style.cssText='font-size:10px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 1px;line-height:1';
+          (function(sid,mo,d2,si){xb.onclick=function(){clearAdminSlot(sid,mo,d2,si);};})(s.id,month,d,slIdx);
+          r.appendChild(xb);
+        }
+        return r;
       }
-      // שעות מחושבות
-      if(calcH>0){var ch=document.createElement('span');ch.textContent=calcH.toFixed(2).replace(/\.?0+$/,'')+'ש';ch.style.cssText='font-size:9px;color:#10717E;margin-right:2px';r0.appendChild(ch);}
-      tc.appendChild(r0);
 
-      // משמרת שנייה
-      if(sl1){
-        var r1=document.createElement('div');
-        r1.style.cssText='display:flex;align-items:center;gap:2px;margin-top:1px';
-        r1.appendChild(mkTS(sl1.start,function(s1start){return function(){updateAdminSlotNew(s1start.sid,s1start.mo,s1start.d2,1,'start',this.value);};}({sid:s.id,mo:month,d2:d}),approved));
-        var dash1=document.createElement('span');dash1.textContent='–';dash1.style.cssText='color:var(--color-text-tertiary);font-size:10px';r1.appendChild(dash1);
-        r1.appendChild(mkTS(sl1.end,function(s1end){return function(){updateAdminSlotNew(s1end.sid,s1end.mo,s1end.d2,1,'end',this.value);};}({sid:s.id,mo:month,d2:d}),approved));
-        if(!approved){var x1=document.createElement('button');x1.textContent='×';x1.style.cssText='font-size:10px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 1px;line-height:1';(function(sid,mo,d2){x1.onclick=function(){clearAdminSlot(sid,mo,d2,1);};})(s.id,month,d);r1.appendChild(x1);}
-        tc.appendChild(r1);
-      } else if((sl0.start||sl0.end)&&!approved){
-        var addBtn=document.createElement('button');addBtn.textContent='+ משמרת';addBtn.style.cssText='font-size:9px;color:#10717E;background:none;border:none;cursor:pointer;padding:0;display:block';
-        (function(sid,mo,d2){addBtn.onclick=function(){addAdminSlot(sid,mo,d2);};})(s.id,month,d);
-        tc.appendChild(addBtn);
+      tc.appendChild(mkShift(sl0,0,h0));
+      tc.appendChild(mkShift(sl1,1,h1));
+
+      // סיכום יומי — מוצג כשיש שעות
+      if(calcH>0){
+        var sumRow=document.createElement('div');
+        var eff=ovD!==null?ovD:calcH;
+        sumRow.style.cssText='font-size:9px;font-weight:700;color:#085041;margin-top:2px;text-align:center;padding:1px 2px;background:rgba(16,113,126,0.07);border-radius:3px';
+        sumRow.textContent='סה"כ: '+eff.toFixed(2).replace(/\.?0+$/,'')+'ש\'';
+        tc.appendChild(sumRow);
       }
 
       // עקוף ידני יומי
-      var ovRow=document.createElement('div');ovRow.style.cssText='display:flex;align-items:center;gap:2px;margin-top:1px';
-      var ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='ידנית';
+      var ovRow=document.createElement('div');ovRow.style.cssText='display:flex;align-items:center;gap:2px;margin-top:2px';
+      var ovLbl=document.createElement('span');ovLbl.textContent='ידנית:';ovLbl.style.cssText='font-size:9px;color:var(--color-text-tertiary)';ovRow.appendChild(ovLbl);
+      var ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='—';
       ovInp.value=ovD!==null?ovD:'';ovInp.disabled=approved;
       ovInp.title='ערך ידני — מחליף חישוב אוטומטי';
-      ovInp.style.cssText='width:52px;font-size:10px;padding:1px 3px;border:0.5px solid '+(ovD!==null?'#10717E':approved?'transparent':'var(--color-border-tertiary)')+';border-radius:3px;background:'+(approved?'transparent':'var(--color-background-primary)')+';color:'+(ovD!==null?'#10717E':'var(--color-text-secondary)')+';text-align:center'+(approved?';opacity:0':'');
+      ovInp.style.cssText='width:44px;font-size:10px;padding:1px 3px;border:0.5px solid '+(ovD!==null?'#10717E':approved?'transparent':'var(--color-border-tertiary)')+';border-radius:3px;background:'+(approved?'transparent':'var(--color-background-primary)')+';color:'+(ovD!==null?'#10717E':'var(--color-text-secondary)')+';text-align:center'+(approved?';opacity:0':'');
       (function(d2,sid,mo){ovInp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};})(d,s.id,month);
       ovRow.appendChild(ovInp);
       tc.appendChild(ovRow);
