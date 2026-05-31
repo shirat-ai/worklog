@@ -607,7 +607,7 @@ function checkAutoReminders(){
   // יום אחרון לחודש
   const lastDayOfMonth=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
   if(day===lastDayOfMonth){
-    const pendingDays=DB.days.filter(d=>d.date.startsWith(month)&&d.dayApproval==='pending').length;
+    const pendingDays=(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='pending').length;
     const pendingPriv=(DB.privateLessons||[]).filter(p=>p.date.startsWith(month)&&p.privApproval==='pending').length;
     const pendingMisc=(DB.miscPayments||[]).filter(p=>p.month===month&&p.status==='pending').length;
     if(pendingDays||pendingPriv||pendingMisc)
@@ -618,7 +618,7 @@ function checkAutoReminders(){
   if(day===8){
     const prevMonth=new Date(now.getFullYear(),now.getMonth()-1,1);
     const pm=prevMonth.getFullYear()+'-'+String(prevMonth.getMonth()+1).padStart(2,'0');
-    const lids=new Set(DB.days.filter(d=>d.date.startsWith(pm)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));
+    const lids=new Set((DB.days||[]).filter(d=>d.date.startsWith(pm)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));
     let unpaid=0;
     lids.forEach(lid=>{const st=(DB.payStatuses||{})[pm+'_'+lid]||'pending';if(st==='pending'||st==='approved')unpaid++;});
     if(unpaid)msgs.push('⏰ תזכורת — יש '+unpaid+' מרצים עם תשלומים שלא אושרו / שולמו עבור '+pm.replace('-','/'));
@@ -628,7 +628,7 @@ function checkAutoReminders(){
   if(day===10){
     const prevMonth=new Date(now.getFullYear(),now.getMonth()-1,1);
     const pm=prevMonth.getFullYear()+'-'+String(prevMonth.getMonth()+1).padStart(2,'0');
-    const lids=new Set(DB.days.filter(d=>d.date.startsWith(pm)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));
+    const lids=new Set((DB.days||[]).filter(d=>d.date.startsWith(pm)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean));
     let noReceipt=0;
     lids.forEach(lid=>{const l=getLect(lid);if(l&&l.type!=='employee'){const st=(DB.payStatuses||{})[pm+'_'+lid]||'pending';if(st==='done')noReceipt++;}});
     const miscNoReceipt=(DB.miscPayments||[]).filter(p=>p.month===pm&&p.status==='done').length;
@@ -1046,7 +1046,7 @@ function renderAdminHours(){
     tc.style.cssText='padding:5px 6px;text-align:center;border-right:0.5px solid var(--color-border-tertiary)';
     var compDiv=document.createElement('div');
     compDiv.style.cssText='font-size:13px;font-weight:700;color:'+(hasOvr?'var(--color-text-tertiary)':'#10717E')+(hasOvr?';text-decoration:line-through':'');
-    compDiv.textContent=totCalc[si]||'0';
+    compDiv.textContent=totCalc[si]?+totCalc[si].toFixed(2)+'':'0';
     tc.appendChild(compDiv);
     var totInp=document.createElement('input');
     totInp.type='number';totInp.min='0';totInp.step='0.25';totInp.placeholder='עקוף';
@@ -1678,7 +1678,7 @@ function exportGanttExcel(){
     s1+='<Row ss:Height="44"><Cell ss:StyleID="RL"><Data ss:Type="String">גברים</Data></Cell>';
     days.forEach(function(d){
       var dc=ganttDayClass(d);
-      var actM=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='m';});
+      var actM=(DB.days||[]).filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='m';});
       var plan=planMap[d]; var text='',sid='NOR';
       if(actM.length){sid='DONE';actM.forEach(function(a){(a.groups||[]).forEach(function(g){text+=(text?'\n':'')+(g.name||'').slice(0,10);});if(!(a.groups||[]).length)text+=(text?'\n':'')+'גברים';});}
       else if(plan&&(plan.grpsM||[]).length){sid=dc==='sat'?'SAT':'GM';(plan.grpsM||[]).forEach(function(g){text+=(text?'\n':'')+g.slice(0,10);});}
@@ -1690,7 +1690,7 @@ function exportGanttExcel(){
     s1+='<Row ss:Height="44"><Cell ss:StyleID="RL"><Data ss:Type="String">נשים</Data></Cell>';
     days.forEach(function(d){
       var dc=ganttDayClass(d);
-      var actW=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='w';});
+      var actW=(DB.days||[]).filter(function(a){return a.date===d&&a.dayApproval==='approved'&&a.track==='w';});
       var plan=planMap[d]; var text='',sid='NOR';
       if(actW.length){sid='DONE';actW.forEach(function(a){(a.groups||[]).forEach(function(g){text+=(text?'\n':'')+(g.name||'').slice(0,10);});if(!(a.groups||[]).length)text+=(text?'\n':'')+'נשים';});}
       else if(plan&&(plan.grpsW||[]).length){sid=dc==='sat'?'SAT':'GW';(plan.grpsW||[]).forEach(function(g){text+=(text?'\n':'')+g.slice(0,10);});}
@@ -1718,7 +1718,7 @@ function exportGanttExcel(){
   allDates.forEach(function(d){
     var dc=ganttDayClass(d);var dn=new Date(d+'T12:00:00').getDay();
     var plan=planMap[d];
-    var actual=DB.days.filter(function(a){return a.date===d&&a.dayApproval==='approved';});
+    var actual=(DB.days||[]).filter(function(a){return a.date===d&&a.dayApproval==='approved';});
     var isActual=actual.length>0;
     var rs=isActual?'IDDONE':(dc==='sat'?'IDSAT':(dc==='hol'||dc==='erev'?'IDHOL':(dc==='fri'?'IDFRI':(plan&&((plan.grpsM||[]).length)?'IDGM':(plan&&(plan.grpsW||[]).length?'IDGW':'ID')))));
     var dateCell=isActual?d+' (בוצע)':d;
@@ -1850,7 +1850,7 @@ function renderGantt(){
       else mCostPlan+=p.cost||0;
     });
     // check actual days from DB
-    DB.days.filter(function(d){return days.includes(d.date)&&d.dayApproval==='approved';}).forEach(function(d){
+    (DB.days||[]).filter(function(d){return days.includes(d.date)&&d.dayApproval==='approved';}).forEach(function(d){
       mCostDone+=calcDayCost(d);
     });
     var totalStr=mCostDone||mCostPlan?' | בוצע: \u20aa'+mCostDone.toLocaleString('he-IL')+(mCostPlan?' | מתוכנן: \u20aa'+mCostPlan.toLocaleString('he-IL'):''):'';
@@ -1873,7 +1873,7 @@ function renderGantt(){
     days.forEach(function(d){
       var dc=ganttDayClass(d);
       // Check actual days first
-      var actualDays=DB.days.filter(function(ad){return ad.date===d&&ad.dayApproval==='approved';});
+      var actualDays=(DB.days||[]).filter(function(ad){return ad.date===d&&ad.dayApproval==='approved';});
       var plannedItems=planned.filter(function(p){return p.date===d;});
       html+='<td class="cell '+dc+'" onclick="ganttCellClick(\''+d+'\')">';
       if(actualDays.length){
@@ -1908,7 +1908,7 @@ function renderGantt(){
     html+='<tr><td class="rlbl" style="font-size:8px;color:var(--color-text-tertiary)">\u05e2\u05dc\u05d5\u05ea \u20aa</td>';
     days.forEach(function(d){
       var cost=0;
-      DB.days.filter(function(ad){return ad.date===d&&ad.dayApproval==='approved';}).forEach(function(ad){cost+=calcDayCost(ad);});
+      (DB.days||[]).filter(function(ad){return ad.date===d&&ad.dayApproval==='approved';}).forEach(function(ad){cost+=calcDayCost(ad);});
       if(!cost){
         var pp=planned.filter(function(p){return p.date===d&&!p.event;});
         pp.forEach(function(p){cost+=p.cost||0;});
@@ -1938,7 +1938,7 @@ function ganttCellClick(date){
   var existing=(DB.ganttPlanned||[]).filter(function(p){return p.date===date;});
   var isFuture=date>=new Date().toISOString().slice(0,10);
   // If actual data exists — show info only
-  var actual=DB.days.filter(function(d){return d.date===date&&d.dayApproval==='approved';});
+  var actual=(DB.days||[]).filter(function(d){return d.date===date&&d.dayApproval==='approved';});
   if(actual.length&&existing.length===0){alert('יום זה כבר נרשם בפועל');return;}
   openGanttModal(date, existing.length?existing[0].id:null);
 }
@@ -2023,8 +2023,8 @@ function openGanttModal(date, editId){
       var gW=[...mo.querySelectorAll('.gw-pill.pill-sel')].map(function(b){return b.dataset.val;});
       if(!gM.length&&!gW.length){alert('\u05d1\u05d7\u05e8 \u05e7\u05d1\u05d5\u05e6\u05d4 \u05d0\u05d7\u05ea');return;}
       var hrs2=0;
-      gM.forEach(function(g){Object.keys(DB.schedule||{}).forEach(function(k){if(k.endsWith('_m'))(DB.schedule[k].groups||[]).forEach(function(sg){if(sg.name===g)(sg.rows||[]).forEach(function(r){hrs2+=r.payHrs||0;});});});if(!hrs2)hrs2+=2.5;});
-      gW.forEach(function(g){Object.keys(DB.schedule||{}).forEach(function(k){if(k.endsWith('_w'))(DB.schedule[k].groups||[]).forEach(function(sg){if(sg.name===g)(sg.rows||[]).forEach(function(r){hrs2+=r.payHrs||0;});});});if(!hrs2)hrs2+=2.5;});
+      gM.forEach(function(g){var gHrs=0;Object.keys(DB.schedule||{}).forEach(function(k){if(k.endsWith('_m'))(DB.schedule[k].groups||[]).forEach(function(sg){if(sg.name===g)(sg.rows||[]).forEach(function(r){gHrs+=r.payHrs||0;});});});hrs2+=gHrs||2.5;});
+      gW.forEach(function(g){var gHrs=0;Object.keys(DB.schedule||{}).forEach(function(k){if(k.endsWith('_w'))(DB.schedule[k].groups||[]).forEach(function(sg){if(sg.name===g)(sg.rows||[]).forEach(function(r){gHrs+=r.payHrs||0;});});});hrs2+=gHrs||2.5;});
       var obj={id:editId||'gp_'+Date.now(),date:date,grpsM:gM,grpsW:gW,event:null,status:'planned',hrs:+hrs2.toFixed(1),cost:Math.round(hrs2*240)};
     }
     if(editId)DB.ganttPlanned=DB.ganttPlanned.map(function(p){return p.id===editId?obj:p;});
@@ -2356,7 +2356,7 @@ function _applySnapshot(p) {
   if (!p) return;
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
    'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent']
-    .forEach(k => { if (p[k] !== undefined) DB[k] = p[k]; });
+    .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
   if (DB.codes && DB.codes.coord && !DB.codes.coord_m) {
@@ -2414,7 +2414,7 @@ function _startListener() {
         if (pgId === 'dash') { buildMonthCheckboxes(); renderDash(); }
         else if (pgId === 'monthly') { buildAllMonthDropdowns(); renderMonthly(); }
         else if (pgId === 'payments') { buildAllMonthDropdowns(); renderPayments(); }
-        else if (pgId === 'approval') renderApprDays();
+        else if (pgId === 'approval') renderApproval();
         else if (pgId === 'private') renderPrivate();
         else if (pgId === 'admin') renderAdminHours();
         else if (pgId === 'gantt') renderGantt();
@@ -3559,7 +3559,7 @@ function saveEntryDay(){const dateVal=document.getElementById('e-date').value,tr
   const obj={id:'day_'+Date.now(),date:dateVal,dow,track,enteredBy:currentRole,groups,totalPay:tp,quota:schedTotal||0,overQuota,yearBreakdown:yb,dayApproval:'pending',payApproval:'pending',savedAt:new Date().toISOString()};const ex=DB.days.findIndex(x=>x.date===dateVal&&x.track===track);if(ex>=0){DB.days[ex]=obj;}else{logAction('רישום יום לימודים',dateVal+' — '+({m:'גברים',w:'נשים'}[track]||track));DB.days.push(obj);}DB.days.sort((a,b)=>b.date.localeCompare(a.date));saveDB();
   let saveMsg='יום נשמר ✓';if(grpOverages.length)saveMsg='⚠ חריגה בקבוצות:\n'+grpOverages.join('\n');else if(overQuota>0)saveMsg='⚠ יום נשמר — חריגה כוללת: +'+fmt(overQuota)+' ש״ה';
   alert(saveMsg);document.getElementById('groups-container').innerHTML='';updateEntryDash();}
-function buildPrivAlerts(month,cid){const alerts=DB.students.map(s=>{const used=Math.round(studentTotalUsed(s.id)*100)/100;const quota=studentEffectiveQuota(s);const pct=used/quota*100;if(pct>=100)return`<div class="al-alert">${s.name} — ${fmt(used)}/${quota} ש"ה (חריגה!)</div>`;if(pct>=90)return`<div class="al-w">${s.name} — ${Math.round(pct)}% מהמכסה</div>`;return'';}).join('');document.getElementById(cid).innerHTML=alerts;}
+function buildPrivAlerts(month,cid){const alerts=DB.students.map(s=>{const used=Math.round(studentTotalUsed(s.id)*100)/100;const quota=studentEffectiveQuota(s);if(!quota)return'';const pct=used/quota*100;if(pct>=100)return`<div class="al-alert">${s.name} — ${fmt(used)}/${quota} ש"ה (חריגה!)</div>`;if(pct>=90)return`<div class="al-w">${s.name} — ${Math.round(pct)}% מהמכסה</div>`;return'';}).join('');document.getElementById(cid).innerHTML=alerts;}
 function renderPrivate(){
   // בניית dropdown חודשים דינמית
   (()=>{const sel=document.getElementById('priv-month');if(!sel)return;const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];const now=new Date();const curM=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');const mSet=new Set([...(DB.privateLessons||[]).map(pl=>pl.date.slice(0,7)),curM].filter(Boolean));const prev=sel.value;const sorted=[...mSet].sort((a,b)=>b.localeCompare(a));sel.innerHTML=sorted.map(v=>{const d=new Date(v+'-01');return`<option value="${v}"${v===prev?' selected':''}>${HEB[d.getMonth()]} ${d.getFullYear()}</option>`;}).join('');if(!sel.value||!sorted.includes(sel.value))sel.value=curM;})();
@@ -3653,7 +3653,7 @@ function bulkApproveDays(){const ids=[...document.querySelectorAll('.day-cb:chec
 function approveDay(id){const d=DB.days.find(x=>x.id===id);if(!d)return;
   if(isMonthLocked(d.date.slice(0,7))){alert('חודש זה נעול. שחרר את הנעילה כדי לבצע שינויים.');return;}d.dayApproval='approved';d.principalNote=document.getElementById('note_'+id)?.value||'';logAction('אישור יום לימודים',d.date+' — '+({m:'גברים',w:'נשים'}[d.track]||d.track));saveDB();renderApprDays();}
 function returnDay(id){const d=DB.days.find(x=>x.id===id);if(!d)return;const note=document.getElementById('note_'+id)?.value||'';if(!note.trim()){alert('יש לכתוב הערה');return;}d.dayApproval='returned';d.principalNote=note;if(!DB.messages)DB.messages=[];if(!DB.adminStaff)DB.adminStaff=[];if(!DB.adminHours)DB.adminHours={};if(!DB.lockedMonths)DB.lockedMonths={};if(!DB.ganttPlanned)DB.ganttPlanned=[];const _dd=new Date(d.date+'T12:00:00').toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit'});const _rn={principal:'מנהל',office:'מנהלת משרד'}[currentRole]||currentRole;DB.messages.unshift({id:'msg_'+Date.now(),ts:new Date().toISOString(),role:currentRole,roleName:_rn,text:'יום '+_dd+({m:' — גברים',w:' — נשים'}[d.track]||'')+' הוחזר לתיקון'+(note?' | '+note:''),type:'return'});if(DB.messages.length>300)DB.messages=DB.messages.slice(0,300);logAction('החזרה לרכז',d.date+(note?' — '+note:''));saveDB();renderApprDays();}
-function renderApprPrivate(){const month=document.getElementById('a-month').value;buildPrivAlerts(month,'a-priv-alerts');const pending=DB.privateLessons.filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='pending').sort((a,b)=>a.date.localeCompare(b.date));document.getElementById('a-priv-list').innerHTML=`<div style="font-size:12px;font-weight:500;margin-bottom:6px">ממתינים לאישור (${pending.length})</div>${pending.length?`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="min-width:450px"><thead><tr><th style="padding:6px 8px">מרצה</th><th>תלמיד</th><th>כלי</th><th>תאריך</th><th>שעה</th><th>ש"ה</th><th>מכסה נותרת</th><th>אישור</th></tr></thead><tbody>${pending.map(pl=>{const l=getLect(pl.lectId);const s=getStudent(pl.studentId);const acad=toAcad(pl.duration);const used=s?studentTotalUsed(s.id):0;const quota=s?studentEffectiveQuota(s):0;const remaining=Math.max(0,quota-used);const over=used>quota;const near=(used/quota)>=0.9&&!over;const qCell=s?`<span style="color:${over?'#A32D2D':near?'#854F0B':'var(--color-text-primary)'}">${fmt(remaining)} ש"ה</span>${over?'<span class="badge b-alert" style="margin-right:4px;font-size:9px">חריגה</span>':near?'<span class="badge b-warn" style="margin-right:4px;font-size:9px">קרוב</span>':''}`:' — ';return`<tr><td style="padding:3px 4px">${isPending?`<input type="checkbox" class="priv-cb" data-id="${pl.id}" onchange="updatePrivBulkCount()" style="width:14px;height:14px;accent-color:#10717E">`:''}</td><td style="padding:5px 8px;font-size:12px;font-weight:500">${l?l.name:'—'}</td><td style="font-size:12px">${s?s.name:'—'}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s?s.instrument:'—'}</td><td style="font-size:12px">${pl.date}</td><td style="font-size:12px">${pl.time||'—'}</td><td style="font-size:12px;color:#10717E;font-weight:500">${fmt(acad)}</td><td style="font-size:12px">${qCell}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ok btn-sm" onclick="approvePriv('${pl.id}')">אשר</button><button class="btn btn-ret btn-sm" onclick="rejectPriv('${pl.id}')">דחה</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`:'<div class="al-ok">כל שיעורי הכלי אושרו ✓</div>'}` ;}
+function renderApprPrivate(){const month=document.getElementById('a-month').value;buildPrivAlerts(month,'a-priv-alerts');const pending=DB.privateLessons.filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='pending').sort((a,b)=>a.date.localeCompare(b.date));document.getElementById('a-priv-list').innerHTML=`<div style="font-size:12px;font-weight:500;margin-bottom:6px">ממתינים לאישור (${pending.length})</div>${pending.length?`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table style="min-width:450px"><thead><tr><th style="padding:6px 8px">מרצה</th><th>תלמיד</th><th>כלי</th><th>תאריך</th><th>שעה</th><th>ש"ה</th><th>מכסה נותרת</th><th>אישור</th></tr></thead><tbody>${pending.map(pl=>{const isPending=true;const l=getLect(pl.lectId);const s=getStudent(pl.studentId);const acad=toAcad(pl.duration);const used=s?studentTotalUsed(s.id):0;const quota=s?studentEffectiveQuota(s):0;const remaining=Math.max(0,quota-used);const over=used>quota;const near=quota>0&&(used/quota)>=0.9&&!over;const qCell=s?`<span style="color:${over?'#A32D2D':near?'#854F0B':'var(--color-text-primary)'}">${fmt(remaining)} ש"ה</span>${over?'<span class="badge b-alert" style="margin-right:4px;font-size:9px">חריגה</span>':near?'<span class="badge b-warn" style="margin-right:4px;font-size:9px">קרוב</span>':''}`:' — ';return`<tr><td style="padding:3px 4px">${isPending?`<input type="checkbox" class="priv-cb" data-id="${pl.id}" onchange="updatePrivBulkCount()" style="width:14px;height:14px;accent-color:#10717E">`:''}</td><td style="padding:5px 8px;font-size:12px;font-weight:500">${l?l.name:'—'}</td><td style="font-size:12px">${s?s.name:'—'}</td><td style="font-size:12px;color:var(--color-text-secondary)">${s?s.instrument:'—'}</td><td style="font-size:12px">${pl.date}</td><td style="font-size:12px">${pl.time||'—'}</td><td style="font-size:12px;color:#10717E;font-weight:500">${fmt(acad)}</td><td style="font-size:12px">${qCell}</td><td><div style="display:flex;gap:4px"><button class="btn btn-ok btn-sm" onclick="approvePriv('${pl.id}')">אשר</button><button class="btn btn-ret btn-sm" onclick="rejectPriv('${pl.id}')">דחה</button></div></td></tr>`;}).join('')}</tbody></table></div></div>`:'<div class="al-ok">כל שיעורי הכלי אושרו ✓</div>'}` ;}
 function approvePriv(id){const pl=DB.privateLessons.find(x=>x.id===id);if(pl)pl.privApproval='approved';saveDB();renderApprPrivate();renderDash();}
 function rejectPriv(id){const pl=DB.privateLessons.find(x=>x.id===id);if(pl)pl.privApproval='rejected';saveDB();renderApprPrivate();}
 function renderApprPay(){const month=document.getElementById('a-month').value;const allDaysOk=DB.days.filter(d=>d.date.startsWith(month)).every(d=>d.dayApproval==='approved'||d.dayApproval==='returned');const pnote=document.getElementById('a-pay-note');if(!allDaysOk){pnote.className='al-i';pnote.style.display='block';pnote.textContent='יש לאשר את כל ימי הלימוד לפני אישור תשלומים';}else pnote.style.display='none';const lids=[...new Set(DB.days.filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))).filter(Boolean))];document.getElementById('bulk-pay-count').textContent=lids.length?`${lids.length} מרצים`:'';document.getElementById('a-pay-list').innerHTML=lids.map(lid=>{const calc=calcLect(lid,month);if(!calc)return'';const key=month+'_'+lid;const st=DB.payStatuses&&DB.payStatuses[key]||'pending';const stBadge=st==='approved'?'<span class="badge b-ok">אושר ✓</span>':st==='returned'?'<span class="badge b-warn">לבדיקה</span>':'<span class="badge b-pend">ממתין</span>';const actions=st==='pending'&&allDaysOk?`<div style="display:flex;gap:4px"><input type="checkbox" class="pay-cb" data-key="${key}" data-lid="${lid}" style="width:15px;height:15px;accent-color:#10717E"><button class="btn btn-ok btn-sm" onclick="approvePayment('${key}','${lid}')">אשר</button><button class="btn btn-ret btn-sm" onclick="returnPayment('${key}','${lid}')">החזר</button></div>`:stBadge;return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 13px;background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:5px"><div><span style="font-size:12px;font-weight:500">${calc.l.name}</span> ${typeBadge(calc.l.type)} <span style="font-size:12px;color:var(--color-text-secondary);margin-right:8px">${fmt(calc.hrs)} ש"ה</span><span style="font-size:12px;font-weight:500;color:#10717E">${fmtM(calc.total)}</span></div><div style="display:flex;align-items:center;gap:6px">${actions}</div></div>`;}).join('')||'<div style="font-size:12px;color:var(--color-text-secondary)">ממתין לאישור ימי לימוד...</div>';}
