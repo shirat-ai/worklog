@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -424,6 +424,16 @@ tr.drag-over td{border-top:2px solid #10717E}
             <div id="backup-msg" style="font-size:11px;color:#3B6D11;display:none"></div>
           </div>
         </div>
+        <div class="card"><div class="ct">ייבוא חכם (AI) — מפתח API</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <p style="font-size:12px;color:var(--color-text-secondary)">מפתח נדרש לייבוא קבצי Excel לצוות מנהלי. נשמר מקומית בדפדפן בלבד (לא ב-Firebase).</p>
+            <div style="display:flex;gap:6px;align-items:flex-end">
+              <div class="fg" style="flex:1"><label>Anthropic API Key</label><input type="password" id="anthropic-key-input" placeholder="sk-ant-..." style="font-family:monospace;font-size:11px" oninput="document.getElementById('anthropic-key-status').textContent=''"></div>
+              <button class="btn btn-sm btn-g" onclick="saveAnthropicKey()">שמור</button>
+            </div>
+            <div id="anthropic-key-status" style="font-size:11px;color:#3B6D11"></div>
+          </div>
+        </div>
         <div class="card"><div class="ct">קודים וסיסמאות</div>
           <div style="display:flex;flex-direction:column;gap:10px">
             <div class="fg"><label>קוד רכז מסלול גברים</label><input type="password" id="code-coord_m" placeholder="קוד חדש"><button class="btn btn-sm btn-g" style="margin-top:5px;width:fit-content" onclick="saveCode('coord_m')">שמור</button></div>
@@ -767,8 +777,10 @@ function calcSlotHrs(start,end){
 
 
 
+function _aiHeaders(){var k=getAnthropicKey();if(!k)return null;return{'Content-Type':'application/json','x-api-key':k,'anthropic-version':'2023-06-01','anthropic-dangerous-allow-browser':'true'};}
 function importAdminExcel(input,month,staffId){
   var file=input.files[0];if(!file)return;
+  var hdrs=_aiHeaders();if(!hdrs){alert('יש להגדיר Anthropic API Key בהגדרות נוספות');return;}
   var reader=new FileReader();
   reader.onload=async function(e){
     var bytes=new Uint8Array(e.target.result);
@@ -776,7 +788,7 @@ function importAdminExcel(input,month,staffId){
     try{
       var resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:hdrs,
         body:JSON.stringify({
           model:'claude-sonnet-4-20250514',max_tokens:1000,
           messages:[{role:'user',content:[
@@ -1011,8 +1023,8 @@ function renderAdminHours(){
       tc.appendChild(mkShift(sl0,0,h0));
       tc.appendChild(mkShift(sl1,1,h1));
 
-      // סיכום יומי — מוצג כשיש שעות
-      if(calcH>0){
+      // סיכום יומי — מוצג כשיש שעות (אוטומטי או ידני)
+      if(calcH>0||ovD!==null){
         var sumRow=document.createElement('div');
         var eff=ovD!==null?ovD:calcH;
         sumRow.style.cssText='font-size:9px;font-weight:700;color:#085041;margin-top:2px;text-align:center;padding:1px 2px;background:rgba(16,113,126,0.07);border-radius:3px';
@@ -1210,6 +1222,7 @@ function revokeAdminHours(sid,month){
 // ייבוא חכם מאקסל — Claude API
 // ══════════════════════════════════════════════
 function adminImportExcel(){
+  const hdrs=_aiHeaders();if(!hdrs){alert('יש להגדיר Anthropic API Key בהגדרות נוספות');return;}
   const input=document.createElement('input');
   input.type='file';input.accept='.xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg';
   input.onchange=async(e)=>{
@@ -1243,7 +1256,7 @@ function adminImportExcel(){
 החזר JSON בלבד ללא טקסט נוסף. כלול רק ימים עם שעות עבודה (לא שבתות). s=שעת כניסה, e=שעת יציאה בפורמט HH:MM.`;
       const resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:hdrs,
         body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:[contentBlock,{type:'text',text:prompt}]}]})
       });
       const data=await resp.json();
@@ -1285,8 +1298,9 @@ function confirmAdminImport(jsonStr,staffId,month){
       DB.adminHours[key].mode='monthly';
       DB.adminHours[key]._total=parseFloat(parsed.total)||0;
     } else if(parsed.mode==='daily'){
-      DB.adminHours[key].mode='daily';
-      (parsed.days||[]).forEach(d=>{if(d.hours>0)DB.adminHours[key][d.day]={h:parseFloat(d.hours)||0};});
+      delete DB.adminHours[key].mode;
+      if(!DB.adminHours[key]._overrides)DB.adminHours[key]._overrides={};
+      (parsed.days||[]).forEach(d=>{if(d.hours>0)DB.adminHours[key]._overrides[d.day]=parseFloat(d.hours)||0;});
     } else {
       DB.adminHours[key].mode='slots';
       (parsed.days||[]).forEach(d=>{
@@ -1317,9 +1331,9 @@ function downloadAdminTemplate(){
   // שורת כותרת: תאריך, יום, אחר כך לכל עובד: כניסה + יציאה
   var header=['תאריך','יום'];
   staff.forEach(function(s){header.push(s.name+' — כניסה');header.push(s.name+' — יציאה');});
-  // שורת דוגמה
-  var exRow=['לדוגמה','ראשון'];
-  staff.forEach(function(){exRow.push('09:00');exRow.push('17:00');});
+  // שורת דוגמה — ריקה כדי לא לבלבל את הייבוא
+  var exRow=['לדוגמה — מלא את הימים למטה',''];
+  staff.forEach(function(){exRow.push('');exRow.push('');});
   var rows=[header,exRow];
   for(var d=1;d<=daysInMonth;d++){
     var ds=month+'-'+String(d).padStart(2,'0');
@@ -1333,6 +1347,7 @@ function downloadAdminTemplate(){
 }
 
 function importAdminMultiExcel(){
+  var hdrs2=_aiHeaders();if(!hdrs2){alert('יש להגדיר Anthropic API Key בהגדרות נוספות');return;}
   var month=document.getElementById('admin-month')?.value;
   if(!month){alert('בחר חודש');return;}
   var staff=DB.adminStaff||[];
@@ -1354,7 +1369,7 @@ function importAdminMultiExcel(){
       var prompt='זהו גיליון שעות עבודה לחודש '+month+'.\nרשימת העובדים במערכת: '+staffNames+'.\nהגיליון מכיל שורות=ימים בחודש, עמודות=שמות העובדים (כניסה ויציאה).\nפורמטי שעות אפשריים: 09:00-17:00, 9.00–17.00, 900-1700, "9 בבוקר עד 5 אחה"צ" וכדומה.\nאם יש שתי משמרות באותו יום — כלול שתיהן.\nהתאם כל שם עמודה לשם העובד הקרוב ביותר מהרשימה.\nהחזר JSON בלבד בפורמט:\n{"employees":{"שם עובד":{"1":[{"start":"09:00","end":"17:00"}],"3":[{"start":"08:30","end":"13:00"},{"start":"14:00","end":"17:30"}]}}}\nמפתחות הימים הם מספרים (1-31). כלול רק ימים עם ערך. JSON בלבד ללא טקסט נוסף.';
       var resp=await fetch('https://api.anthropic.com/v1/messages',{
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:hdrs2,
         body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:[contentBlock,{type:'text',text:prompt}]}]})
       });
       var data=await resp.json();
@@ -3796,6 +3811,8 @@ function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.paySta
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
 
 function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
+function saveAnthropicKey(){const inp=document.getElementById('anthropic-key-input');const val=(inp.value||'').trim();if(!val.startsWith('sk-ant-')){alert('מפתח לא תקין — צריך להתחיל ב-sk-ant-');return;}localStorage.setItem('_ak',val);inp.value='';const st=document.getElementById('anthropic-key-status');if(st){st.textContent='✓ מפתח נשמר';st.style.color='#3B6D11';}}
+function getAnthropicKey(){return localStorage.getItem('_ak')||'';}
 function addLecturer(){const n=document.getElementById('nl-n').value.trim();if(!n)return;DB.lecturers.push({id:'l'+Date.now(),name:n,track:document.getElementById('nl-t').value,rate:parseInt(document.getElementById('nl-r').value)||0,ratePriv:parseInt(document.getElementById('nl-rp').value)||0,travel:parseInt(document.getElementById('nl-tr').value)||0,management:parseInt(document.getElementById('nl-mg').value)||0,type:document.getElementById('nl-type').value,bank:document.getElementById('nl-bank').value,email:(document.getElementById('nl-email')?.value||'').trim()});saveDB();renderSettings();['nl-n','nl-r','nl-rp','nl-tr','nl-mg','nl-bank','nl-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});}
 function addStudent(){const n=document.getElementById('ns-n').value.trim();if(!n)return;DB.students.push({id:'s'+Date.now(),name:n,instrument:document.getElementById('ns-i').value,totalQuota:parseFloat(document.getElementById('ns-q').value)||16,usedOverride:null});saveDB();renderSettings();['ns-n','ns-i','ns-q'].forEach(id=>document.getElementById(id).value='');}
 
