@@ -3593,6 +3593,12 @@ function onDateChange(){const val=document.getElementById('e-date').value;if(!va
   updateEntryDash();}
 function onTrackChange(){const val=document.getElementById('e-date').value;if(val){const dow=new Date(val+'T12:00:00').getDay();document.getElementById('groups-container').innerHTML='';const sched=DB.schedule&&DB.schedule[dow+'_'+document.getElementById('e-track').value];if(sched&&sched.groups)sched.groups.forEach(g=>addGroup(g.name,g.rows));else addGroup();updateEntryDash();}}
 function saveEntryDay(){const dateVal=document.getElementById('e-date').value,track=document.getElementById('e-track').value;if(!dateVal){alert('יש לבחור תאריך');return;}if(isMonthLocked(dateVal.slice(0,7))){alert('חודש זה נעול.');return;}const groups=getAllGroupData().map(g=>({name:g.grpName,rows:g.rows.filter(r=>r.lectId).map(r=>({lectId:r.lectId,start:r.start,end:r.end,payHrs:r.pay,note:r.note}))})).filter(g=>g.rows.length);if(!groups.length){alert('יש להוסיף מרצה');return;}
+  // ── בדיקת שעות חלקיות (פתיחה ללא סגירה או להפך) ──
+  const _partialTime=groups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return(hS&&!hE)||(!hS&&hE);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+(r.start||'—')+' → '+(r.end||'—');}));
+  if(_partialTime.length){if(!confirm('⚠️ שים לב — '+_partialTime.length+' שורות עם שעה חלקית:\n'+_partialTime.join('\n')+'\n\nשורות אלו ישמרו עם 0 ש"ה. להמשיך?'))return;}
+  // ── בדיקת שעות כניסה+יציאה עם 0 ש"ה ──
+  const _timesNoHrs=groups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return hS&&hE&&(!r.payHrs||r.payHrs===0);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+r.start+'–'+r.end+' — 0 ש"ה';}));
+  if(_timesNoHrs.length){if(!confirm('⚠️ '+_timesNoHrs.length+' שורות עם שעות רשומות אך 0 ש"ה:\n'+_timesNoHrs.join('\n')+'\n\nהמרצים לא יקבלו תשלום. להמשיך?'))return;}
   const _zeroRows=groups.flatMap(g=>g.rows.filter(r=>!r.payHrs));
   if(_zeroRows.length){if(!confirm(_zeroRows.length+' שורות עם 0 שעות. להמשיך?'))return;}
   const dow=new Date(dateVal+'T12:00:00').getDay();
@@ -3670,7 +3676,15 @@ const isActionable=d.dayApproval==='pending'||d.dayApproval==='returned';const d
   const grpDetail=(d.groups||[]).map(g=>{
     const gt=Math.round(g.rows.reduce((s,r)=>s+(r.payHrs||r.pay||0),0)*100)/100;
     const yq=getSchedGroupHrs(d.dow,d.track,g.name);const yOver=yq&&gt>yq;const yNear=yq&&!yOver&&gt/yq>=0.9;
-    const rowsHtml=g.rows.map(r=>{const l=getLect(r.lectId);return`<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:var(--color-text-primary)"><span>${l?l.name:r.lectId}${r.courseName?' — '+r.courseName:''}${r.note?` <span style="color:#D4860A;font-style:italic">(${r.note})</span>`:''}</span><span style="white-space:nowrap;color:var(--color-text-secondary)">${r.start||''}${r.end?' - '+r.end:''} | <strong>${fmt(r.payHrs||r.pay||0)}</strong> ש״ה</span></div>`;}).join('');
+    const rowsHtml=g.rows.map(r=>{
+      const l=getLect(r.lectId);
+      const hS=r.start&&r.start!=='00:00'; const hE=r.end&&r.end!=='00:00';
+      const partialTime=(hS&&!hE)||(!hS&&hE);
+      const timesNoHrs=hS&&hE&&!(r.payHrs||r.pay);
+      const rowAlert=partialTime?'🔴 שעה חלקית':timesNoHrs?'🟡 0 ש"ה':'';
+      const rowBg=partialTime?'background:rgba(252,235,235,0.5);border-radius:3px;padding:1px 4px;':timesNoHrs?'background:rgba(250,238,218,0.5);border-radius:3px;padding:1px 4px;':'';
+      return`<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:var(--color-text-primary);${rowBg}"><span>${rowAlert?`<span style="font-size:10px;margin-left:4px">${rowAlert}</span> `:''}<span>${l?l.name:r.lectId}${r.courseName?' — '+r.courseName:''}${r.note?` <span style="color:#D4860A;font-style:italic">(${r.note})</span>`:''}</span></span><span style="white-space:nowrap;color:var(--color-text-secondary)">${r.start||''}${r.end?' - '+r.end:''} | <strong>${fmt(r.payHrs||r.pay||0)}</strong> ש״ה</span></div>`;
+    }).join('');
     return`<div style="margin-bottom:5px;padding:6px 8px;border-radius:4px;background:${yOver?'rgba(252,235,235,0.15)':yNear?'rgba(250,238,218,0.12)':'var(--color-background-tertiary)'};border:0.5px solid ${yOver?'#F7C1C1':yNear?'#FAC775':'var(--color-border-secondary)'}"><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:500;margin-bottom:4px"><span style="color:var(--color-text-primary)">${g.name}</span><span style="color:${yOver?'#E05050':yNear?'#D4860A':'#10717E'}">${fmt(gt)}${yq?'/'+fmt(yq):''} ש״ה${yOver?' ⚠':yNear?' ◐':''}</span></div>${rowsHtml}</div>`;
   }).join('');
   // Per-lecturer summary at bottom of day
