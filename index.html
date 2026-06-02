@@ -3642,8 +3642,8 @@ const isActionable=d.dayApproval==='pending'||d.dayApproval==='returned';const d
   const grpDetail=(d.groups||[]).map(g=>{
     const gt=Math.round(g.rows.reduce((s,r)=>s+(r.payHrs||r.pay||0),0)*100)/100;
     const yq=getSchedGroupHrs(d.dow,d.track,g.name);const yOver=yq&&gt>yq;const yNear=yq&&!yOver&&gt/yq>=0.9;
-    const rowsHtml=g.rows.map(r=>{const l=getLect(r.lectId);return`<div style="display:flex;justify-content:space-between;font-size:11px;padding:1px 0;color:var(--color-text-secondary)"><span>${l?l.name:r.lectId}${r.courseName?' — '+r.courseName:''}${r.note?` <span style="color:#854F0B;font-style:italic">(${r.note})</span>`:''}</span><span style="white-space:nowrap">${r.start||''}${r.end?' - '+r.end:''} | ${fmt(r.payHrs||r.pay||0)} ש״ה</span></div>`;}).join('');
-    return`<div style="margin-bottom:5px;padding:6px 8px;border-radius:4px;background:${yOver?'rgba(252,235,235,0.5)':yNear?'rgba(250,238,218,0.5)':'var(--color-background-primary)'};border:0.5px solid ${yOver?'#F7C1C1':yNear?'#FAC775':'var(--color-border-tertiary)'}"><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:500;margin-bottom:3px"><span>${g.name}</span><span style="color:${yOver?'#A32D2D':yNear?'#854F0B':'#10717E'}">${fmt(gt)}${yq?'/'+fmt(yq):''} ש״ה${yOver?' ⚠':yNear?' ◐':''}</span></div>${rowsHtml}</div>`;
+    const rowsHtml=g.rows.map(r=>{const l=getLect(r.lectId);return`<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;color:var(--color-text-primary)"><span>${l?l.name:r.lectId}${r.courseName?' — '+r.courseName:''}${r.note?` <span style="color:#D4860A;font-style:italic">(${r.note})</span>`:''}</span><span style="white-space:nowrap;color:var(--color-text-secondary)">${r.start||''}${r.end?' - '+r.end:''} | <strong>${fmt(r.payHrs||r.pay||0)}</strong> ש״ה</span></div>`;}).join('');
+    return`<div style="margin-bottom:5px;padding:6px 8px;border-radius:4px;background:${yOver?'rgba(252,235,235,0.15)':yNear?'rgba(250,238,218,0.12)':'var(--color-background-tertiary)'};border:0.5px solid ${yOver?'#F7C1C1':yNear?'#FAC775':'var(--color-border-secondary)'}"><div style="display:flex;justify-content:space-between;font-size:12px;font-weight:500;margin-bottom:4px"><span style="color:var(--color-text-primary)">${g.name}</span><span style="color:${yOver?'#E05050':yNear?'#D4860A':'#10717E'}">${fmt(gt)}${yq?'/'+fmt(yq):''} ש״ה${yOver?' ⚠':yNear?' ◐':''}</span></div>${rowsHtml}</div>`;
   }).join('');
   // Per-lecturer summary at bottom of day
   const lectSummary=(()=>{
@@ -3656,9 +3656,9 @@ const isActionable=d.dayApproval==='pending'||d.dayApproval==='returned';const d
     }));
     const entries=Object.entries(byLect).sort((a,b)=>b[1]-a[1]);
     if(!entries.length)return'';
-    return'<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--color-border-tertiary);font-size:11px;color:var(--color-text-secondary)">'
-      +'<span style="font-weight:500;margin-left:6px">סה"כ לפי מרצה:</span>'
-      +entries.map(([nm,hrs])=>`<span style="margin-left:8px">${nm}: <strong>${fmt(hrs)}</strong> ש"ה</span>`).join('')
+    return'<div style="margin-top:8px;padding-top:6px;border-top:0.5px solid var(--color-border-tertiary);font-size:11px;color:var(--color-text-primary)">'
+      +'<span style="font-weight:500;margin-left:6px;color:var(--color-text-secondary)">סה"כ לפי מרצה:</span>'
+      +entries.map(([nm,hrs])=>`<span style="margin-left:8px">${nm}: <strong style="color:#10717E">${fmt(hrs)}</strong> ש"ה</span>`).join('')
       +'</div>';
   })();
   const expandedContent=grpDetail+lectSummary+(d.principalNote?`<div style="font-size:11px;color:var(--color-text-secondary);margin-top:5px;padding:4px 6px;background:var(--color-background-secondary);border-radius:4px">הערה: ${d.principalNote}</div>`:'');
