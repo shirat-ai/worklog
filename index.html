@@ -265,7 +265,7 @@ tr.drag-over td{border-top:2px solid #10717E}
           <div class="fg" style="width:140px"><label>שם</label><input id="mpy-name" placeholder="שם מלא"></div>
           <div class="fg" style="width:120px"><label>סוג</label><select id="mpy-type" onchange="onMpyTypeChange()"><option value="employee">שכיר</option><option value="freelance_exempt">עצמאי פטור</option><option value="freelance_vat">עצמאי מורשה</option></select></div>
           <div class="fg" style="width:100px"><label>סכום לפני מע"מ</label><input id="mpy-amount" type="number" min="0" placeholder="₪"></div>
-          <div class="fg" style="width:120px"><label>שם בנק</label><input id="mpy-bank-name" placeholder="בנק הפועלים"></div>
+          <div class="fg" style="width:140px"><label>בנק</label><select id="mpy-bank-name"><option value="">— בחר בנק —</option><option value="10">בנק לאומי (10)</option><option value="12">בנק הפועלים (12)</option><option value="11">בנק דיסקונט (11)</option><option value="20">בנק מזרחי-טפחות (20)</option><option value="31">הבינלאומי הראשון (31)</option><option value="17">מרכנתיל דיסקונט (17)</option><option value="13">בנק אגוד (13)</option><option value="14">בנק אוצר החייל (14)</option><option value="54">בנק ירושלים (54)</option><option value="4">בנק יהב (4)</option><option value="99">אחר</option></select></div>
           <div class="fg" style="width:70px"><label>סניף</label><input id="mpy-branch" placeholder="123"></div>
           <div class="fg" style="width:100px"><label>חשבון</label><input id="mpy-account" placeholder="456789"></div>
           <div class="fg" style="width:160px"><label>הערה</label><input id="mpy-note" placeholder="תיאור תשלום..."></div>
@@ -3050,9 +3050,8 @@ function exportPaymentsExcel(month){
   });
   // תשלומים ידניים עצמאיים
   (DB.manualPayments||[]).filter(p=>p.month===month&&p.type!=='employee'&&['approved','done','received'].includes(p.status)).forEach(p=>{
-    const code=getBankCode(p.bankName||'');
     const vat=p.type==='freelance_vat'?Math.round(p.amount*0.18):0;
-    rows.push([p.name,code,p.branch||'',p.account||'','תשלום ידני',Math.round(p.amount+vat)]);
+    rows.push([p.name,p.bankName||'',p.branch||'',p.account||'','תשלום ידני',Math.round(p.amount+vat)]);
   });
   if(!rows.length){alert('אין תשלומים מאושרים לייצוא');return;}
   _downloadXls([['שם המוטב','בנק','מספר סניף','מספר חשבון','מהות העברה','סכום (₪)'],...rows],'תשלומים_'+month+'.xls');
@@ -3819,11 +3818,11 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
 <span>סכום: <strong>₪${p.amount.toLocaleString('he-IL')}</strong></span>
 ${vat>0?`<span>מע"מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></span>`:''}
 <span>סה"כ: <strong style="color:#10717E">₪${total.toLocaleString('he-IL')}</strong></span>
-${p.bankName?`<span>בנק: <strong>${p.bankName}</strong>${p.branch?' סניף '+p.branch:''}${p.account?' חשבון '+p.account:''}</span>`:''}
+${p.bankName?`<span>בנק: <strong>${p.bankName}</strong>${p.branch?' | סניף: '+p.branch:''}${p.account?' | חשבון: '+p.account:''}</span>`:''}
 </div>
 <div style="display:flex;justify-content:space-between;align-items:center;border-top:0.5px solid var(--color-border-tertiary);padding-top:8px;margin-top:4px">
 <div style="font-size:12px;color:var(--color-text-secondary)">סה"כ לתשלום: <strong style="font-size:15px;color:#10717E">₪${total.toLocaleString('he-IL')}</strong></div>
-<div style="font-size:11px;color:var(--color-text-secondary)">${[p.bankName,p.branch,p.account].filter(Boolean).join(' / ')||'אין פרטי בנק'}</div>
+<div style="font-size:11px;color:var(--color-text-secondary)">${p.bankName?'בנק '+p.bankName+(p.branch?' / '+p.branch:'')+(p.account?' / '+p.account:''):'אין פרטי בנק'}</div>
 </div></div></div>`;
       const mpRow=div.querySelector('.lect-pay-row');
       if(mpRow){const av=mpRow.querySelector('[data-orig-text]');if(av){const cb=document.createElement('input');cb.type='checkbox';cb.className='mpay-cb';cb.dataset.key='mpy_'+p.id;cb.style.display='none';av.addEventListener('click',e=>{e.stopPropagation();cb.checked=!cb.checked;_setPayAvatar(av,cb.checked);updateMonthlySel();});mpRow.appendChild(cb);}}
