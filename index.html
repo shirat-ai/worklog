@@ -554,11 +554,9 @@ function exportEmployeesExcel(month){
       Math.round(calc.total||0)
     ]);
   });
-  // צוות מנהלי שכיר
-  getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{
+  // צוות מנהלי שכיר — מיוצא תמיד כמו מרצים שכירים (ללא תלות בסטטוס תשלום)
+  getAdminMonthlyRows(month).filter(r=>r.type==='employee'&&r.total>0).forEach(r=>{
     const pKey=month+'_adm_'+r.id;
-    const st=(DB.payStatuses||{})[pKey];
-    if(!['approved','done','received'].includes(st))return;
     const key=month+'_'+r.id;
     const hrsData=DB.adminHours&&DB.adminHours[key]||{};
     const ovs=hrsData._overrides||{};
