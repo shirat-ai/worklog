@@ -538,6 +538,8 @@ function exportEmployeesExcel(month){
   lids.forEach(lid=>{
     const l=getLect(lid);
     if(!l||l.type!=='employee')return;
+    const st=(DB.payStatuses||{})[month+'_'+lid];
+    if(!['approved','done','received'].includes(st))return;
     const calc=calcLect(lid,month);
     if(!calc)return;
     rows.push([
@@ -554,9 +556,11 @@ function exportEmployeesExcel(month){
       Math.round(calc.total||0)
     ]);
   });
-  // צוות מנהלי שכיר — מיוצא תמיד כמו מרצים שכירים (ללא תלות בסטטוס תשלום)
+  // צוות מנהלי שכיר — רק מאושרים
   getAdminMonthlyRows(month).filter(r=>r.type==='employee'&&r.total>0).forEach(r=>{
     const pKey=month+'_adm_'+r.id;
+    const st=(DB.payStatuses||{})[pKey];
+    if(!['approved','done','received'].includes(st))return;
     const key=month+'_'+r.id;
     const hrsData=DB.adminHours&&DB.adminHours[key]||{};
     const ovs=hrsData._overrides||{};
