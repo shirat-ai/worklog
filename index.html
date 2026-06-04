@@ -470,6 +470,7 @@ tr.drag-over td{border-top:2px solid #10717E}
           <thead><tr>
             <th style="width:140px">שם</th>
             <th id="admin-rate-th" style="width:80px">תעריף שעתי</th>
+            <th id="admin-travel-th" style="width:65px" title="תוספת נסיעות לכל יום ממשרד">נסיעות/יום</th>
             <th style="width:80px">סוג</th>
             <th>בנק / סניף / חשבון</th>
             <th style="width:190px">דוא"ל</th>
@@ -585,8 +586,10 @@ function renderAdminStaff(){
   const el=document.getElementById('admin-staff-rows');if(!el)return;
   const showRate=currentRole!=='office';
   const rateTh=document.getElementById('admin-rate-th');
+  const travelTh=document.getElementById('admin-travel-th');
   const rateFg=document.getElementById('na-rate-fg');
   if(rateTh)rateTh.style.display=showRate?'':'none';
+  if(travelTh)travelTh.style.display=showRate?'':'none';
   if(rateFg)rateFg.style.display=showRate?'':'none';
   const staff=DB.adminStaff||[];
   if(!staff.length){
