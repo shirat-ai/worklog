@@ -480,6 +480,7 @@ tr.drag-over td{border-top:2px solid #10717E}
         <div style="display:flex;gap:4px;margin-top:10px;flex-wrap:wrap;align-items:flex-end">
           <div class="fg" style="flex:1;min-width:120px"><label>שם עובד</label><input id="na-name" placeholder="שם"></div>
           <div id="na-rate-fg" class="fg" style="width:72px"><label>תעריף שעתי</label><input id="na-rate" type="number" placeholder="50"></div>
+          <div class="fg" style="width:65px"><label>נסיעות/יום</label><input id="na-travel" type="number" placeholder="0" title="תוספת נסיעות לכל יום ממשרד"></div>
           <div class="fg" style="width:80px"><label>סוג</label><select id="na-type"><option value="employee">שכיר</option><option value="freelance_vat">מורשה</option><option value="freelance_exempt">פטור</option></select></div>
           <div class="fg" style="width:55px"><label>בנק</label><input id="na-bank" placeholder="בנק"></div>
           <div class="fg" style="width:48px"><label>סניף</label><input id="na-branch" placeholder="סניף"></div>
@@ -595,7 +596,7 @@ function renderAdminStaff(){
   el.innerHTML=staff.map((s,i)=>`
     <tr style="border-bottom:0.5px solid var(--color-border-tertiary)">
       <td style="padding:4px 8px"><input value="${s.name||''}" style="font-size:12px;width:100%;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'name',this.value)"></td>
-      ${showRate?`<td style="padding:4px 8px"><input type="number" value="${s.rate||0}" style="font-size:12px;width:70px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;text-align:center;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'rate',this.value)"></td>`:''}
+      ${showRate?`<td style="padding:4px 8px"><input type="number" value="${s.rate||0}" style="font-size:12px;width:70px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;text-align:center;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'rate',this.value)"></td><td style="padding:4px 8px" title="נסיעות לכל יום ממשרד"><input type="number" value="${s.travel||0}" style="font-size:12px;width:55px;border:0.5px solid var(--color-border-secondary);border-radius:4px;padding:2px 5px;text-align:center;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="updateAdminField(${i},'travel',parseFloat(this.value)||0)"></td>`:''}
       <td style="padding:4px 8px"><select onchange="updateAdminField(${i},'type',this.value)" style="font-size:12px;padding:2px 5px;border:0.5px solid var(--color-border-secondary);border-radius:4px;background:var(--color-background-primary);color:var(--color-text-primary)">
         <option value="employee" ${s.type==='employee'?'selected':''}>שכיר</option>
         <option value="freelance_vat" ${s.type==='freelance_vat'?'selected':''}>מורשה</option>
@@ -619,7 +620,7 @@ function addAdminStaff(){
   if(!name){alert('יש להזין שם');return;}
   const bank=[document.getElementById('na-bank')?.value||'',document.getElementById('na-branch')?.value||'',document.getElementById('na-acc')?.value||''].filter(Boolean).join('/');
   const email=(document.getElementById('na-email')?.value||'').trim();
-  DB.adminStaff.push({id:'as_'+Date.now(),name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,type:document.getElementById('na-type')?.value||'employee',bank,email});
+  DB.adminStaff.push({id:'as_'+Date.now(),name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,travel:parseFloat(document.getElementById('na-travel')?.value)||0,type:document.getElementById('na-type')?.value||'employee',bank,email});
   saveDB();renderAdminStaff();
   ['na-name','na-rate','na-bank','na-branch','na-acc','na-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
@@ -972,10 +973,11 @@ function renderAdminHours(){
       html+='<div style="font-size:10px;color:var(--color-text-secondary);margin-top:1px">'+(TLBL[s.type]||s.type)+' | ₪'+s.rate+'/ש\'</div>';
       html+='<div style="margin-top:3px;display:flex;align-items:center;gap:4px;justify-content:center;font-size:10px;color:var(--color-text-secondary)">שכר גלובלי: <input type="number" min="0" step="100" placeholder="—" value="'+(hasGlobal?hrs._globalAmount:'')+'" title="שכר גלובלי — מחליף חישוב שעות" onchange="updateAdminGlobalAmount(\''+s.id+'\',\''+month+'\',this.value)" style="width:70px;font-size:10px;padding:1px 4px;border:0.5px solid '+(hasGlobal?'#10717E':'var(--color-border-secondary)')+';border-radius:3px;background:var(--color-background-primary);color:'+(hasGlobal?'#10717E':'var(--color-text-primary)')+'"></div>';
     }
-    html+='<div style="margin-top:5px">'+(approved
+    var approveBtn=approved
       ?'<button onclick="revokeAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:10px;padding:2px 7px;border:0.5px solid #A32D2D;border-radius:4px;background:none;cursor:pointer;color:#A32D2D">ביטול אישור</button>'
-      :'<button onclick="approveAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:10px;padding:2px 7px;border:none;border-radius:4px;background:#10717E;cursor:pointer;color:#fff">✓ אשר דיווח</button>'
-    )+'</div>';
+      :'<button onclick="approveAdminHours(\''+s.id+'\',\''+month+'\')" style="font-size:10px;padding:2px 7px;border:none;border-radius:4px;background:#10717E;cursor:pointer;color:#fff">✓ אשר דיווח</button>';
+    var importBtn='<label style="font-size:10px;padding:2px 7px;border:0.5px solid var(--color-border-secondary);border-radius:4px;cursor:pointer;background:var(--color-background-primary);color:#10717E">📥 ייבוא<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="importAdminEmployeeFile(\''+s.id+'\',\''+month+'\',this)"></label>';
+    html+='<div style="margin-top:5px;display:flex;gap:4px;justify-content:center;flex-wrap:wrap">'+approveBtn+importBtn+'</div>';
     th.innerHTML=html;
     hr1.appendChild(th);
   });
@@ -983,6 +985,7 @@ function renderAdminHours(){
   // ── גוף ──
   var tbody=tbl.createTBody();
   var totCalc=staff.map(function(){return 0;});
+  var officeDays=staff.map(function(){return 0;});
 
   for(var d=1;d<=daysInMonth;d++){
     var ds=month+'-'+String(d).padStart(2,'0');
@@ -1048,12 +1051,29 @@ function renderAdminHours(){
       tc.appendChild(mkShift(sl1,1,h1));
 
       // סיכום יומי — מוצג כשיש שעות (אוטומטי או ידני)
-      if(calcH>0||ovD!==null){
+      var hasDay=calcH>0||ovD!==null;
+      if(hasDay){
         var sumRow=document.createElement('div');
         var eff=ovD!==null?ovD:calcH;
         sumRow.style.cssText='font-size:9px;font-weight:700;color:#085041;margin-top:2px;text-align:center;padding:1px 2px;background:rgba(16,113,126,0.07);border-radius:3px';
         sumRow.textContent='סה"כ: '+eff.toFixed(2).replace(/\.?0+$/,'')+'ש\'';
         tc.appendChild(sumRow);
+      }
+
+      // טוגל ממשרד/מהבית — רק לעובדים עם תוספת נסיעות
+      if(s.travel>0&&hasDay){
+        var travelMap=hrs._travelDays||{};
+        var isOffice=travelMap[d]!==false;
+        if(isOffice)officeDays[si]++;
+        var tBtn=document.createElement('button');
+        tBtn.textContent=isOffice?'🏢 ממשרד':'🏠 מהבית';
+        tBtn.title=isOffice?'לחץ לסמן מהבית (ללא נסיעות)':'לחץ לסמן ממשרד (עם נסיעות)';
+        tBtn.disabled=approved;
+        tBtn.style.cssText='font-size:9px;padding:1px 4px;border-radius:3px;cursor:pointer;margin-top:2px;width:100%;border:0.5px solid;'+(isOffice?'background:rgba(16,113,126,0.1);color:#085041;border-color:#B8DDA0':'background:rgba(155,155,155,0.1);color:var(--color-text-tertiary);border-color:var(--color-border-secondary)');
+        (function(sid,mo,day,cur){tBtn.onclick=function(){updateAdminTravelDay(sid,mo,day,!cur);};})(s.id,month,d,isOffice);
+        tc.appendChild(tBtn);
+      } else if(s.travel>0&&!hasDay){
+        // ביום ללא שעות לא ספרים אבל לא מציגים כלום
       }
 
       // עקוף ידני יומי
@@ -1087,6 +1107,7 @@ function renderAdminHours(){
     compDiv.style.cssText='font-size:13px;font-weight:700;color:'+(hasOvr?'var(--color-text-tertiary)':'#10717E')+(hasOvr?';text-decoration:line-through':'');
     compDiv.textContent=totCalc[si]?+totCalc[si].toFixed(2)+'':'0';
     tc.appendChild(compDiv);
+    if(s.travel>0){var trDiv=document.createElement('div');trDiv.style.cssText='font-size:9px;color:#10717E;margin-top:1px';trDiv.textContent='🏢 '+officeDays[si]+' ימים | נסיעות: ₪'+(officeDays[si]*(s.travel||0)).toLocaleString('he-IL');tc.appendChild(trDiv);}
     var totInp=document.createElement('input');
     totInp.type='number';totInp.min='0';totInp.step='0.25';totInp.placeholder='עקוף';
     totInp.value=hasOvr?hrs._totalOverride:'';totInp.disabled=approved;
@@ -1114,8 +1135,10 @@ function renderAdminHours(){
         var gl=document.createElement('div');gl.style.cssText='font-size:9px;color:#10717E;font-weight:400';gl.textContent='גלובלי';pc.appendChild(gl);
       } else {
         var eff=hrs._totalOverride!==undefined?parseFloat(hrs._totalOverride):totCalc[si];
-        var vat=s.type==='freelance_vat'?Math.round(eff*(s.rate||0)*0.18):0;
-        pc.textContent='₪'+(Math.round(eff*(s.rate||0))+vat).toLocaleString('he-IL');
+        var travelAmt=Math.round((s.travel||0)*officeDays[si]);
+        var vat=s.type==='freelance_vat'?Math.round((eff*(s.rate||0)+travelAmt)*0.18):0;
+        pc.textContent='₪'+(Math.round(eff*(s.rate||0))+travelAmt+vat).toLocaleString('he-IL');
+        if(travelAmt>0){var tv=document.createElement('div');tv.style.cssText='font-size:9px;color:var(--color-text-secondary)';tv.textContent='+ ₪'+travelAmt.toLocaleString('he-IL')+' נסיעות';pc.appendChild(tv);}
       }
     });
   }
@@ -1474,14 +1497,28 @@ function confirmAdminMultiImport(jsonStr,month){
 // ══════════════════════════════════════════════
 function getAdminMonthlyRows(month){
   const staff=DB.adminStaff||[];
+  const parts=month.split('-');const dIM=new Date(parseInt(parts[0]),parseInt(parts[1]),0).getDate();
   return staff.map(s=>{
     const key=month+'_'+s.id;
     if((DB.adminHoursStatus||{})[key]!=='approved')return null;
     const total=getAdminHrsTotal(key);
     if(!total)return null;
-    const key2=month+'_'+s.id;const hrs2=(DB.adminHours||{})[key2]||{};
-    const payTotal=hrs2._globalAmount!==undefined?Math.round(hrs2._globalAmount):Math.round(total*(s.rate||0));
-    return{id:s.id,name:s.name,hrs:+total.toFixed(2),rate:s.rate||0,total:payTotal,type:s.type||'employee',bank:s.bank||''};
+    const hrs2=(DB.adminHours||{})[key]||{};
+    // חישוב ימי משרד לנסיעות
+    let officeDaysCount=0;
+    if(s.travel>0){
+      const travelMap=hrs2._travelDays||{};
+      const overrides=hrs2._overrides||{};
+      for(let d=1;d<=dIM;d++){
+        const slots=_normAdminDay(hrs2[d])||[];
+        const hasHrs=slots.some(sl=>sl.start||sl.end)||overrides[d]!==undefined;
+        if(hasHrs&&travelMap[d]!==false)officeDaysCount++;
+      }
+    }
+    const travelTotal=Math.round((s.travel||0)*officeDaysCount);
+    const payBase=hrs2._globalAmount!==undefined?Math.round(hrs2._globalAmount):Math.round(total*(s.rate||0));
+    const payTotal=payBase+travelTotal;
+    return{id:s.id,name:s.name,hrs:+total.toFixed(2),rate:s.rate||0,total:payTotal,type:s.type||'employee',bank:s.bank||'',travel:s.travel||0,officeDays:officeDaysCount,travelTotal};
   }).filter(Boolean);
 }
 
@@ -3908,6 +3945,61 @@ function onMpyTypeChange(){const t=document.getElementById('mpy-type').value;con
 function saveManualPay(){const name=(document.getElementById('mpy-name').value||'').trim();const type=document.getElementById('mpy-type').value;const amount=parseFloat(document.getElementById('mpy-amount').value)||0;const bankName=(document.getElementById('mpy-bank-name').value||'').trim();const branch=(document.getElementById('mpy-branch').value||'').trim();const account=(document.getElementById('mpy-account').value||'').trim();const note=(document.getElementById('mpy-note').value||'').trim();if(!name){alert('יש להזין שם');return;}if(!amount){alert('יש להזין סכום');return;}const month=document.getElementById('m-month').value;if(!DB.manualPayments)DB.manualPayments=[];DB.manualPayments.push({id:'mpy_'+Date.now(),month,name,type,amount,bankName,branch,account,note,status:'pending'});saveDB();document.getElementById('m-manual-pay-form').style.display='none';['mpy-name','mpy-amount','mpy-bank-name','mpy-branch','mpy-account','mpy-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderMonthly();}
 function updateManualPayStatus(id,val){const p=(DB.manualPayments||[]).find(x=>x.id===id);if(!p)return;p.status=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates['mpy_'+id])DB.payDoneDates['mpy_'+id]=new Date().toISOString().split('T')[0];}saveDB();renderMonthly();}
 function delManualPay(id){if(!confirm('למחוק תשלום זה?'))return;DB.manualPayments=(DB.manualPayments||[]).filter(x=>x.id!==id);saveDB();renderMonthly();}
+function updateAdminTravelDay(staffId,month,day,isOffice){
+  if(!DB.adminHours)DB.adminHours={};
+  const key=month+'_'+staffId;
+  if(!DB.adminHours[key])DB.adminHours[key]={};
+  if(!DB.adminHours[key]._travelDays)DB.adminHours[key]._travelDays={};
+  DB.adminHours[key]._travelDays[day]=isOffice;
+  saveDB();renderAdminHours();
+}
+
+async function importAdminEmployeeFile(staffId,month,inputEl){
+  const file=inputEl.files[0];if(!file)return;
+  inputEl.value='';
+  const hdrs=_aiHeaders();
+  if(!hdrs){alert('יש להגדיר Anthropic API Key בהגדרות');return;}
+  const s=(DB.adminStaff||[]).find(x=>x.id===staffId);
+  if(!s){alert('עובד לא נמצא');return;}
+  const parts=month.split('-');const mm=parseInt(parts[1]);const yy=parseInt(parts[0]);
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const monthHeb=HEB[mm-1]+' '+yy;
+  try{
+    const base64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=()=>rej(new Error('קריאת קובץ נכשלה'));r.readAsDataURL(file);});
+    const mediaType=file.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const prompt=`זהו גיליון שעות עבודה של ${s.name} לחודש ${monthHeb} (${mm}/${yy}).
+מבנה הגיליון: שם יום | תאריך בפורמט ד.מ | שעת כניסה | שעת יציאה | הערות | ממשרד/מהבית.
+תאריכים בפורמט "3.5" = יום 3 לחודש ${mm}.
+"ממשרד" = עבד מהמשרד (יש תוספת נסיעות). "מהבית" = עבד מהבית (אין תוספת נסיעות).
+החזר JSON בלבד:
+{"days":[{"day":3,"start":"10:00","end":"15:52","note":"פגישה עם X","fromOffice":true}]}
+- day = מספר יום בחודש (1-31)
+- start/end בפורמט HH:MM (אם חסר = null)
+- fromOffice: true אם ממשרד, false אם מהבית (ברירת מחדל true)
+JSON בלבד ללא טקסט נוסף.`;
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:hdrs,body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:[{type:'document',source:{type:'base64',media_type:mediaType,data:base64}},{type:'text',text:prompt}]}]})});
+    const data=await resp.json();
+    if(data.error)throw new Error(data.error.message||'שגיאת API');
+    const text=(data.content||[]).map(c=>c.text||'').join('');
+    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+    if(!DB.adminHours)DB.adminHours={};
+    const key=month+'_'+staffId;
+    if(!DB.adminHours[key])DB.adminHours[key]={};
+    delete DB.adminHours[key].mode;delete DB.adminHours[key]._total;
+    const travelDays=DB.adminHours[key]._travelDays||{};
+    let imported=0;
+    (parsed.days||[]).forEach(d=>{
+      if(!d.day)return;
+      if(d.start||d.end){DB.adminHours[key][d.day]=[{start:d.start||'',end:d.end||''}];imported++;}
+      if(d.fromOffice!==undefined)travelDays[d.day]=d.fromOffice;
+      if(d.note&&d.note.trim()){if(!DB.adminHours[key]._notes)DB.adminHours[key]._notes={};DB.adminHours[key]._notes[d.day]=d.note;}
+    });
+    DB.adminHours[key]._travelDays=travelDays;
+    saveDB();renderAdminHours();
+    logAction('ייבוא שעות מקובץ',s.name+' — '+month+' — '+imported+' ימים');
+    alert('✅ ייבוא הושלם: '+imported+' ימים עם שעות עבור '+s.name);
+  }catch(e){alert('שגיאה בייבוא: '+e.message);}
+}
 function updateAdminSupplement(pKey,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[pKey])DB.payOverrides[pKey]={};const v=parseFloat(val)||0;if(v)DB.payOverrides[pKey].supplement=v;else delete DB.payOverrides[pKey].supplement;saveDB();renderMonthly();}
 function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates[key])DB.payDoneDates[key]=new Date().toISOString().split('T')[0];}const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית','pending':'ממתין לאישור'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();if(val==='done')_offerPaymentEmail([key],[]);}
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
