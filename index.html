@@ -107,6 +107,7 @@ tr.drag-over td{border-top:2px solid #10717E}
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -3968,19 +3969,35 @@ async function importAdminEmployeeFile(staffId,month,inputEl){
   const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   const monthHeb=HEB[mm-1]+' '+yy;
   try{
-    const base64=await new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result.split(',')[1]);r.onerror=()=>rej(new Error('קריאת קובץ נכשלה'));r.readAsDataURL(file);});
-    const mediaType=file.type||'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-    const prompt=`זהו גיליון שעות עבודה של ${s.name} לחודש ${monthHeb} (${mm}/${yy}).
-מבנה הגיליון: שם יום | תאריך בפורמט ד.מ | שעת כניסה | שעת יציאה | הערות | ממשרד/מהבית.
+    // המרת Excel ל-CSV בדפדפן באמצעות SheetJS
+    const csvText=await new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=function(e){
+        try{
+          const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+          const ws=wb.Sheets[wb.SheetNames[0]];
+          res(XLSX.utils.sheet_to_csv(ws));
+        }catch(err){rej(err);}
+      };
+      r.onerror=()=>rej(new Error('קריאת קובץ נכשלה'));
+      r.readAsArrayBuffer(file);
+    });
+    const prompt=`זהו גיליון שעות עבודה של ${s.name} לחודש ${monthHeb} (${mm}/${yy}) בפורמט CSV.
+מבנה השורות: שם יום | תאריך בפורמט ד.מ | שעת כניסה | שעת יציאה | הערות | ממשרד/מהבית.
 תאריכים בפורמט "3.5" = יום 3 לחודש ${mm}.
 "ממשרד" = עבד מהמשרד (יש תוספת נסיעות). "מהבית" = עבד מהבית (אין תוספת נסיעות).
+שעות בפורמט HH:MM:SS — השתמש רק ב-HH:MM.
+
+נתוני הגיליון:
+${csvText}
+
 החזר JSON בלבד:
 {"days":[{"day":3,"start":"10:00","end":"15:52","note":"פגישה עם X","fromOffice":true}]}
 - day = מספר יום בחודש (1-31)
 - start/end בפורמט HH:MM (אם חסר = null)
 - fromOffice: true אם ממשרד, false אם מהבית (ברירת מחדל true)
-JSON בלבד ללא טקסט נוסף.`;
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:hdrs,body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:[{type:'document',source:{type:'base64',media_type:mediaType,data:base64}},{type:'text',text:prompt}]}]})});
+JSON בלבד ללא שום טקסט נוסף.`;
+    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:hdrs,body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]})});
     const data=await resp.json();
     if(data.error)throw new Error(data.error.message||'שגיאת API');
     const text=(data.content||[]).map(c=>c.text||'').join('');
