@@ -800,7 +800,7 @@ function calcSlotHrs(start,end){
   if(!start||!end)return 0;
   var s=start.split(':'),e=end.split(':');
   var diff=(parseInt(e[0])*60+parseInt(e[1]))-(parseInt(s[0])*60+parseInt(s[1]));
-  return diff>0?Math.round(diff/15)*0.25:0;
+  return diff>0?Math.round(diff/60*100)/100:0;
 }
 
 
@@ -945,10 +945,11 @@ function renderAdminHours(){
   var TLBL={'employee':'שכיר','freelance_vat':'מורשה','freelance_exempt':'פטור'};
 
   function mkTS(val,onChange,dis){
-    var ts=document.createElement('select');
+    var ts=document.createElement('input');
+    ts.type='time';ts.step='60';
     ts.disabled=!!dis;
-    ts.style.cssText='font-size:10px;padding:1px 1px;border:0.5px solid var(--color-border-secondary);border-radius:3px;background:var(--color-background-primary);color:var(--color-text-primary);max-width:56px'+(dis?';opacity:0.6':'');
-    ts.innerHTML='<option value="">—</option>'+(typeof TIMES!=='undefined'?TIMES:[]).map(function(t){return'<option value="'+t+'"'+(t===val?' selected':'')+'>'+t+'</option>';}).join('');
+    ts.value=val||'';
+    ts.style.cssText='font-size:10px;padding:1px 2px;border:0.5px solid var(--color-border-secondary);border-radius:3px;background:var(--color-background-primary);color:var(--color-text-primary);width:62px'+(dis?';opacity:0.6':'');
     ts.onchange=onChange;return ts;
   }
 
@@ -1064,20 +1065,26 @@ function renderAdminHours(){
         tc.appendChild(sumRow);
       }
 
-      // טוגל ממשרד/מהבית — רק לעובדים עם תוספת נסיעות
+      // שני כפתורי בחירה: ממשרד / מהבית — רק לעובדים עם תוספת נסיעות
       if(s.travel>0&&hasDay){
         var travelMap=hrs._travelDays||{};
         var isOffice=travelMap[d]!==false;
         if(isOffice)officeDays[si]++;
-        var tBtn=document.createElement('button');
-        tBtn.textContent=isOffice?'🏢 ממשרד':'🏠 מהבית';
-        tBtn.title=isOffice?'לחץ לסמן מהבית (ללא נסיעות)':'לחץ לסמן ממשרד (עם נסיעות)';
-        tBtn.disabled=approved;
-        tBtn.style.cssText='font-size:9px;padding:1px 4px;border-radius:3px;cursor:pointer;margin-top:2px;width:100%;border:0.5px solid;'+(isOffice?'background:rgba(16,113,126,0.1);color:#085041;border-color:#B8DDA0':'background:rgba(155,155,155,0.1);color:var(--color-text-tertiary);border-color:var(--color-border-secondary)');
-        (function(sid,mo,day,cur){tBtn.onclick=function(){updateAdminTravelDay(sid,mo,day,!cur);};})(s.id,month,d,isOffice);
-        tc.appendChild(tBtn);
-      } else if(s.travel>0&&!hasDay){
-        // ביום ללא שעות לא ספרים אבל לא מציגים כלום
+        var twrap=document.createElement('div');
+        twrap.style.cssText='display:flex;gap:2px;margin-top:2px';
+        var mkLocBtn=function(label,office){
+          var b=document.createElement('button');
+          b.textContent=label;
+          b.disabled=approved;
+          var sel=(office===isOffice);
+          b.title=office?'עבד מהמשרד — תוספת נסיעות':'עבד מהבית — ללא נסיעות';
+          b.style.cssText='flex:1;font-size:9px;padding:2px 1px;border-radius:3px;cursor:'+(approved?'default':'pointer')+';border:0.5px solid;'+(sel?(office?'background:rgba(16,113,126,0.18);color:#085041;border-color:#10717E;font-weight:700':'background:rgba(133,79,11,0.12);color:#854F0B;border-color:#D4860A;font-weight:700'):'background:transparent;color:var(--color-text-tertiary);border-color:var(--color-border-tertiary);font-weight:400');
+          (function(sid,mo,day,o){b.onclick=function(){updateAdminTravelDay(sid,mo,day,o);};})(s.id,month,d,office);
+          return b;
+        };
+        twrap.appendChild(mkLocBtn('🏢 משרד',true));
+        twrap.appendChild(mkLocBtn('🏠 בית',false));
+        tc.appendChild(twrap);
       }
 
       // עקוף ידני יומי
@@ -1090,6 +1097,15 @@ function renderAdminHours(){
       (function(d2,sid,mo){ovInp.onchange=function(){updateAdminDayOverride(sid,mo,d2,this.value!==''?this.value:null);};})(d,s.id,month);
       ovRow.appendChild(ovInp);
       tc.appendChild(ovRow);
+
+      // שדה הערה ליום
+      var notesMap=hrs._notes||{};
+      var noteVal=notesMap[d]||'';
+      var noteInp=document.createElement('input');
+      noteInp.type='text';noteInp.placeholder='הערה...';noteInp.value=noteVal;noteInp.disabled=approved;
+      noteInp.style.cssText='width:100%;font-size:9px;padding:1px 4px;margin-top:2px;border:0.5px solid '+(noteVal?'#D4860A':'var(--color-border-tertiary)')+';border-radius:3px;background:var(--color-background-primary);color:'+(noteVal?'#854F0B':'var(--color-text-secondary)')+(approved?';opacity:0.7':'');
+      (function(d2,sid,mo){noteInp.onchange=function(){updateAdminNote(sid,mo,d2,this.value);};})(d,s.id,month);
+      tc.appendChild(noteInp);
     });
   }
 
@@ -3957,67 +3973,81 @@ function updateAdminTravelDay(staffId,month,day,isOffice){
   DB.adminHours[key]._travelDays[day]=isOffice;
   saveDB();renderAdminHours();
 }
+function updateAdminNote(staffId,month,day,val){
+  if(!DB.adminHours)DB.adminHours={};
+  const key=month+'_'+staffId;
+  if(!DB.adminHours[key])DB.adminHours[key]={};
+  if(!DB.adminHours[key]._notes)DB.adminHours[key]._notes={};
+  const v=(val||'').trim();
+  if(v)DB.adminHours[key]._notes[day]=v;else delete DB.adminHours[key]._notes[day];
+  saveDB();
+}
 
 async function importAdminEmployeeFile(staffId,month,inputEl){
   const file=inputEl.files[0];if(!file)return;
   inputEl.value='';
-  const hdrs=_aiHeaders();
-  if(!hdrs){alert('יש להגדיר Anthropic API Key בהגדרות');return;}
   const s=(DB.adminStaff||[]).find(x=>x.id===staffId);
   if(!s){alert('עובד לא נמצא');return;}
-  const parts=month.split('-');const mm=parseInt(parts[1]);const yy=parseInt(parts[0]);
-  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-  const monthHeb=HEB[mm-1]+' '+yy;
+  const parts=month.split('-');const mm=parseInt(parts[1]);
   try{
-    // המרת Excel ל-CSV בדפדפן באמצעות SheetJS
-    const csvText=await new Promise((res,rej)=>{
+    // פרסור מקומי עם SheetJS — ללא API
+    const rows=await new Promise((res,rej)=>{
       const r=new FileReader();
       r.onload=function(e){
         try{
-          const wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+          const wb=XLSX.read(e.target.result,{type:'array',cellDates:true,cellNF:false,raw:false});
           const ws=wb.Sheets[wb.SheetNames[0]];
-          res(XLSX.utils.sheet_to_csv(ws));
+          res(XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:false,dateNF:'HH:MM'}));
         }catch(err){rej(err);}
       };
       r.onerror=()=>rej(new Error('קריאת קובץ נכשלה'));
       r.readAsArrayBuffer(file);
     });
-    const prompt=`זהו גיליון שעות עבודה של ${s.name} לחודש ${monthHeb} (${mm}/${yy}) בפורמט CSV.
-מבנה השורות: שם יום | תאריך בפורמט ד.מ | שעת כניסה | שעת יציאה | הערות | ממשרד/מהבית.
-תאריכים בפורמט "3.5" = יום 3 לחודש ${mm}.
-"ממשרד" = עבד מהמשרד (יש תוספת נסיעות). "מהבית" = עבד מהבית (אין תוספת נסיעות).
-שעות בפורמט HH:MM:SS — השתמש רק ב-HH:MM.
-
-נתוני הגיליון:
-${csvText}
-
-החזר JSON בלבד:
-{"days":[{"day":3,"start":"10:00","end":"15:52","note":"פגישה עם X","fromOffice":true}]}
-- day = מספר יום בחודש (1-31)
-- start/end בפורמט HH:MM (אם חסר = null)
-- fromOffice: true אם ממשרד, false אם מהבית (ברירת מחדל true)
-JSON בלבד ללא שום טקסט נוסף.`;
-    const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:hdrs,body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:[{type:'text',text:prompt}]}]})});
-    const data=await resp.json();
-    if(data.error)throw new Error(data.error.message||'שגיאת API');
-    const text=(data.content||[]).map(c=>c.text||'').join('');
-    const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
     if(!DB.adminHours)DB.adminHours={};
     const key=month+'_'+staffId;
     if(!DB.adminHours[key])DB.adminHours[key]={};
     delete DB.adminHours[key].mode;delete DB.adminHours[key]._total;
     const travelDays=DB.adminHours[key]._travelDays||{};
-    let imported=0;
-    (parsed.days||[]).forEach(d=>{
-      if(!d.day)return;
-      if(d.start||d.end){DB.adminHours[key][d.day]=[{start:d.start||'',end:d.end||''}];imported++;}
-      if(d.fromOffice!==undefined)travelDays[d.day]=d.fromOffice;
-      if(d.note&&d.note.trim()){if(!DB.adminHours[key]._notes)DB.adminHours[key]._notes={};DB.adminHours[key]._notes[d.day]=d.note;}
+    const notes=DB.adminHours[key]._notes||{};
+    let imported=0,skipped=0;
+    rows.forEach(function(row){
+      // עמודות: [שם יום, תאריך ד.מ, כניסה, יציאה, הערות, ממשרד/מהבית]
+      if(!row||row.length<2)return;
+      var dateCell=String(row[1]||'').trim();
+      // פרסור תאריך: "3.5", "3.05", "03.5" וכד'
+      var dm=dateCell.match(/^(\d{1,2})[./](\d{1,2})$/);
+      if(!dm)return;
+      var day=parseInt(dm[1]),mon=parseInt(dm[2]);
+      if(isNaN(day)||day<1||day>31)return;
+      if(mon!==mm){skipped++;return;} // שורה מחודש שונה
+      // שעות — יכולות להיות "HH:MM:SS", "HH:MM", Date obj, או שבר עשרוני של יום
+      function toHHMM(v){
+        if(v===null||v===undefined||v==='')return'';
+        if(v instanceof Date)return String(v.getHours()).padStart(2,'0')+':'+String(v.getMinutes()).padStart(2,'0');
+        var str=String(v).trim();
+        var m=str.match(/(\d{1,2}):(\d{2})/);
+        if(m)return m[1].padStart(2,'0')+':'+m[2];
+        var num=parseFloat(str);
+        if(!isNaN(num)&&num>0&&num<1){var mins=Math.round(num*1440);return String(Math.floor(mins/60)).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');}
+        return'';
+      }
+      var start=toHHMM(row[2]);
+      var end=toHHMM(row[3]);
+      var note=String(row[4]||'').trim();
+      var location=String(row[5]||'').trim();
+      var fromOffice=!location||!location.includes('בית'); // ברירת מחדל: ממשרד
+      if(start||end){
+        DB.adminHours[key][day]=[{start:start,end:end}];
+        imported++;
+      }
+      travelDays[day]=fromOffice;
+      if(note)notes[day]=note;
     });
     DB.adminHours[key]._travelDays=travelDays;
+    DB.adminHours[key]._notes=notes;
     saveDB();renderAdminHours();
     logAction('ייבוא שעות מקובץ',s.name+' — '+month+' — '+imported+' ימים');
-    alert('✅ ייבוא הושלם: '+imported+' ימים עם שעות עבור '+s.name);
+    alert('✅ ייבוא הושלם: '+imported+' ימים עם שעות'+(skipped?' | '+skipped+' שורות מחודש אחר (דולגו)':''));
   }catch(e){alert('שגיאה בייבוא: '+e.message);}
 }
 function updateAdminSupplement(pKey,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[pKey])DB.payOverrides[pKey]={};const v=parseFloat(val)||0;if(v)DB.payOverrides[pKey].supplement=v;else delete DB.payOverrides[pKey].supplement;saveDB();renderMonthly();}
