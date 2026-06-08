@@ -256,7 +256,15 @@ tr.drag-over td{border-top:2px solid #10717E}
   <div class="pg" id="pg-monthly">
     <div style="display:flex;gap:7px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
       <select id="m-month" style="width:135px" onchange="renderMonthly()"></select>
-      
+      <select id="m-status-filter" title="סינון לפי סטטוס" style="width:auto;font-size:12px;padding:2px 6px;border:0.5px solid var(--color-border-secondary);border-radius:6px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="renderMonthly()">
+        <option value="all">כל הסטטוסים</option>
+        <option value="unpaid">לא שולם (ממתין/אושר)</option>
+        <option value="pending">ממתין לאישור</option>
+        <option value="approved">אושר — ממתין לתשלום</option>
+        <option value="done">שולם</option>
+        <option value="received">שולם + קבלה / חשבונית</option>
+      </select>
+
       <button class="btn btn-sm" style="font-size:11px" onclick="exportPaymentsExcel()">⬇ ייצוא לבנק</button> <button class="btn btn-sm" id="lock-month-btn" style="font-size:11px" onclick="lockMonth(document.getElementById('m-month').value)">🔒 נעל חודש</button> <button class="btn btn-sm" style="font-size:11px" onclick="exportEmployeesExcel()">⬇ שכירים להנה"ח</button> <button class="btn btn-sm" style="font-size:11px;background:var(--color-background-secondary);border:0.5px solid #10717E;color:#10717E;font-weight:500" onclick="exportMonthlyControlExcel()">📊 ייצוא לבקרה</button>
       <button class="btn btn-sm" style="font-size:11px;background:#10717E;color:#fff;border-color:#10717E" onclick="showManualPayForm()">➕ הוסף תשלום</button></div>
     <div id="m-manual-pay-form" style="display:none;margin-bottom:10px">
@@ -3781,7 +3789,16 @@ function bulkApprovePay(){const items=[...document.querySelectorAll('.pay-cb:che
 function approvePaymentSilent(key,lid){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]='approved';const month=key.split('_').slice(0,2).join('-');DB.days.filter(d=>d.date.startsWith(month)).forEach(d=>{if((d.groups||[]).some(g=>g.rows.some(r=>r.lectId===lid)))d.payApproval='approved';});}
 function approvePayment(key,lid){approvePaymentSilent(key,lid);saveDB();renderApprPay();}
 function returnPayment(key,lid){const note=prompt('הערה:','');if(note===null)return;if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]='returned';saveDB();renderApprPay();}
+let monthlyStatusFilter='all';
+function _monthlyStatusMatch(st){
+  const f=monthlyStatusFilter;
+  if(!f||f==='all')return true;
+  const norm=(st==='invoice')?'received':(st==='review'?'pending':(st||'pending'));
+  if(f==='unpaid')return norm==='pending'||norm==='approved';
+  return norm===f;
+}
 function renderMonthly(){const month=document.getElementById('m-month')?.value;if(!month)return;
+  monthlyStatusFilter=document.getElementById('m-status-filter')?.value||'all';
   const rawLids=[...new Set([...DB.days.filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))),...DB.privateLessons.filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved').map(pl=>pl.lectId)].filter(Boolean))];
   // Employees first, then freelancers
   const lids=[...rawLids.filter(id=>{const l=getLect(id);return l&&l.type==='employee';}),...rawLids.filter(id=>{const l=getLect(id);return l&&l.type!=='employee';})];
@@ -3791,6 +3808,9 @@ function renderMonthly(){const month=document.getElementById('m-month')?.value;i
   lids.forEach(lid=>{
     const calc=calcLect(lid,month);const _ov=(DB.payOverrides||{})[month+'_'+lid]||{};if(!calc||(calc.total===0&&!Object.keys(_ov).length))return;
     const l=calc.l;
+    const key=month+'_'+lid;
+    const st=(DB.payStatuses&&DB.payStatuses[key])||'pending';
+    if(!_monthlyStatusMatch(st))return; // סינון לפי סטטוס
     // Employee/freelancer separator
     if(!_seenFreelancer&&l.type!=='employee'){
       _seenFreelancer=true;
@@ -3799,8 +3819,6 @@ function renderMonthly(){const month=document.getElementById('m-month')?.value;i
       container.appendChild(sepEl);
     }
     const tag=l.track==='m'?'<span class="tag-m">גברים</span>':l.track==='w'?'<span class="tag-w">נשים</span>':'';
-    const key=month+'_'+lid;
-    const st=(DB.payStatuses&&DB.payStatuses[key])||'pending';
     const payNote=(DB.payNotes&&DB.payNotes[key])||'';const isApproved=st==='approved';const isReceived=st==='received'||(l.type==='employee'&&st==='done');const isReview=st==='pending'||st==='review';
     const _lb=parseBankStr(l.bank||'');const _missingBank=l.type!=='employee'&&(!_lb.account||_lb.account==='0'||_lb.account==='');
     const stOpts=[{v:'pending',lbl:'ממתין לאישור'},{v:'review',lbl:'לבדיקה'},{v:'approved',lbl:'אושר'},{v:'done',lbl:'שולם'},{v:'received',lbl:'שולם + קבלה / חשבונית ✓'}].map(o=>`<option value="${o.v}"${o.v===st?' selected':''}>${o.lbl}</option>`).join('');const editI=(f,v,lbl)=>`<div class="pay-cell"><div class="pay-cell-label">${lbl}</div><div class="pay-cell-val" style="color:#10717E">${f.includes('Hrs')||f==='hrs'||f==='privHrs'?fmt(v):fmtM(v)}</div><input type="number" value="${Math.round(v*100)/100}" step="0.25" onchange="overrideF('${key}','${f}',this.value)" style="margin-top:2px"></div>`;const rowHtml=`<div class="lect-pay-row" style="${isReceived?'border-color:#3B6D11;background:rgba(234,243,222,0.35);':isApproved?'border-color:#C0DD97;':isReview?'border-color:#F7C1C1;':''}"><div class="lect-pay-hdr" onclick="toggleLPR('lpr_${lid}')"><div style="display:flex;align-items:center;gap:10px"><div style="width:34px;height:34px;border-radius:50%;background:${isReceived?'#EAF3DE':isApproved?'rgba(225,245,238,0.6)':isReview?'#FCEBEB':'var(--color-background-secondary)'};display:flex;align-items:center;justify-content:center;font-weight:500;font-size:13px;color:${isReceived?'#3B6D11':isApproved?'#085041':isReview?'#A32D2D':'var(--color-text-secondary)'};">${l.name.charAt(0)}</div><div><div style="font-size:13px;font-weight:500"><span onclick="showLecturerHistory('${lid}','${month}')" style="cursor:pointer;color:var(--color-text-primary);border-bottom:1px dotted var(--color-border-secondary)">${l.name}</span> ${tag}${_missingBank?'<span style="font-size:10px;background:#FCEBEB;color:#A32D2D;border:0.5px solid #F7C1C1;border-radius:3px;padding:1px 5px;margin-right:4px">⚠️ אין פרטי בנק</span>':''}${payNote?` <span style="font-size:11px;color:var(--color-text-secondary);font-style:italic">| ${payNote}</span>`:''} <button class="btn btn-sm" style="font-size:10px;padding:1px 5px" onclick="event.stopPropagation();editPayNote('`+key+`')" title="הוסף הערה">✎</button></div><div style="font-size:11px;color:var(--color-text-secondary)">${typeBadge(l.type).replace(/<[^>]+>/g,'')} | ${fmt(calc.hrs)} ש"ה הוראה${calc.privHrs>0?' | '+fmt(calc.privHrs)+' ש"ה פרטני':''}<div style=\"font-size:11px;color:var(--color-text-secondary);margin-top:1px\">${fmtM(calc.base)}${calc.privBase>0?' + '+fmtM(calc.privBase)+' פרטני':''}${calc.management>0?' + '+fmtM(calc.management)+' מנהלה':''}${calc.travel>0?' + '+fmtM(calc.travel)+' נסיעות':''}</div></div></div></div><div style="display:flex;align-items:center;gap:8px"><div style="font-size:16px;font-weight:500;color:#10717E">${fmtM(calc.total)}</div><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${isReview?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="event.stopPropagation();updatePayStatus('`+key+`','approved')">✓ אשר</button>`:''}
@@ -3829,7 +3847,7 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
     container.appendChild(rowEl);
   });
   // Append misc payments
-  const pmts2=(DB.miscPayments||[]).filter(p=>p.month===month&&p.amount>0);
+  const pmts2=(DB.miscPayments||[]).filter(p=>p.month===month&&p.amount>0&&_monthlyStatusMatch(p.status));
   if(pmts2.length){
     const hdr=document.createElement('div');
     hdr.innerHTML='<div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin:12px 0 6px;padding:8px 0;border-top:0.5px solid var(--color-border-tertiary)">תשלומים נוספים לביצוע</div>';
@@ -3855,7 +3873,7 @@ ${!isReview&&!isApproved&&!isReceived&&st!=='bank'&&st!=='done'&&st!=='review'?`
     });
   }
   // תשלומים ידניים
-  const manPmts=(DB.manualPayments||[]).filter(p=>p.month===month);
+  const manPmts=(DB.manualPayments||[]).filter(p=>p.month===month&&_monthlyStatusMatch(p.status));
   if(manPmts.length){
     const mHdr=document.createElement('div');
     mHdr.innerHTML='<div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin:12px 0 6px;padding:8px 0;border-top:0.5px solid var(--color-border-tertiary)">תשלומים ידניים</div>';
@@ -3904,7 +3922,7 @@ ${p.bankName?`<span>בנק: <strong>${p.bankName}</strong>${p.branch?' | סני�
     });
   }
   // Admin staff hours in monthly — rendered as payment cards like lecturers
-  const adminRows=getAdminMonthlyRows(month);
+  const adminRows=getAdminMonthlyRows(month).filter(r=>_monthlyStatusMatch((DB.payStatuses||{})[month+'_adm_'+r.id]||'pending'));
   if(adminRows.length){
     const adminHdr=document.createElement('div');
     adminHdr.innerHTML='<div style="font-size:12px;font-weight:500;color:var(--color-text-secondary);margin:12px 0 6px;padding:8px 0;border-top:0.5px solid var(--color-border-tertiary)">צוות מנהלי</div>';
@@ -3953,6 +3971,11 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
     });
   }
 
+  // הודעת ריק כשהסינון לא החזיר תוצאות
+  if(!container.children.length){
+    const lbl={all:'',unpaid:'שלא שולמו',pending:'הממתינים לאישור',approved:'שאושרו וממתינים לתשלום',done:'ששולמו',received:'ששולמו עם קבלה'}[monthlyStatusFilter]||'';
+    container.innerHTML='<div style="padding:20px;text-align:center;font-size:13px;color:var(--color-text-secondary)">אין תשלומים '+lbl+' בחודש זה</div>';
+  }
 }
 function toggleLPR(id){const b=document.getElementById(id);if(b)b.classList.toggle('open');}
 function _setPayAvatar(av,checked){if(checked){av.style.background='#10717E';av.style.color='#fff';av.textContent='✓';}else{av.style.background=av.dataset.origBg||'';av.style.color=av.dataset.origColor||'';av.textContent=av.dataset.origText||'';}}
