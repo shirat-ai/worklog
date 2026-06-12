@@ -4090,7 +4090,7 @@ function addStudent(){const n=document.getElementById('ns-n').value.trim();if(!n
 
 
 // ── Email ──
-function _sendPaymentEmail(params){
+function _sendPaymentEmail(params,silent){
   if(!EMAILJS_READY()){console.warn('EmailJS לא מוגדר');return;}
   const receiptType=params.type==='freelance_vat'?'חשבונית מס/קבלה':params.type==='freelance_exempt'?'קבלה':'חשבונית / קבלה';
   const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
@@ -4109,7 +4109,7 @@ function _sendPaymentEmail(params){
     const ekey=(params.month||'')+'_'+(params.name||'');
     DB.emailSent[ekey]=new Date().toISOString().split('T')[0];
     saveDB();renderPendingReceipts();
-  },(e)=>alert('שגיאה בשליחת מייל ל-'+params.name+': '+e.text));
+  },(e)=>{if(silent){console.warn('שגיאת מייל ל-'+params.name+': '+(e&&e.text||e));}else{alert('שגיאה בשליחת מייל ל-'+params.name+': '+e.text);}});
 }
 
 function _offerPaymentEmail(payKeys, miscIds){
@@ -4150,23 +4150,30 @@ function _offerPaymentEmail(payKeys, miscIds){
 }
 
 // ── תזכורות קבלות ── (נשאל בכניסה של מנהל/ת בלבד)
+// ── מאגר תזכורות-קבלה אחיד (זהה לפורמט שמודול-הליבה shirat_pay קורא) ──
+function _rcptNode(){
+  if(!DB.integrations)DB.integrations={};
+  if(!DB.integrations.shirat_pay)DB.integrations.shirat_pay={};
+  if(!DB.integrations.shirat_pay.notifications)DB.integrations.shirat_pay.notifications={};
+  if(!DB.integrations.shirat_pay.notifications.receipt_reminder)DB.integrations.shirat_pay.notifications.receipt_reminder={};
+  return DB.integrations.shirat_pay.notifications.receipt_reminder;
+}
+function _rcptLastEmail(k){const r=_rcptNode()[k];return r&&r.email?r.email.last_at:null;}
+function _rcptRecordEmail(k){const n=_rcptNode();const r=n[k]||{};const e=r.email||{count:0};r.email={count:(e.count||0)+1,last_at:new Date().toISOString()};n[k]=r;}
+// last-sent לתאריך: מהמאגר האחיד, ואם ריק — fallback ל-DB.emailSent הישן (לא להציף את מי שכבר קיבל)
+function _lastSentFor(k,month,name){return _rcptLastEmail(k)||((DB.emailSent||{})[(month||'')+'_'+(name||'')]||null);}
+
+// תזכורת-קבלה אוטומטית: כל 3 ימים מהשליחה הקודמת, **ללא תקרה** — עד שהסטטוס משתנה (התקבלה קבלה).
+// פתרון-ביניים עד שמנוע-הליבה (INTEGRATION.md §6) ייקח את התזמון. רץ בכניסת מנהל/ת בלבד.
 function _promptPaymentReminders(){
   if(!EMAILJS_READY())return;
-  if(!DB.payDoneDates)return;
-  if(!DB.payReminderSent)DB.payReminderSent={};
-  const today=new Date();
-  function _daysSince(d){return Math.floor((today-new Date(d))/86400000);}
-  function _reminderNum(days){if(days>=9)return 3;if(days>=6)return 2;if(days>=3)return 1;return 0;}
-  const due=[];
-  // מרצים + צוות מנהלי
-  Object.entries(DB.payDoneDates).forEach(([key,doneDate])=>{
-    if(key.startsWith('misc_'))return;
-    const status=(DB.payStatuses||{})[key];
-    if(status!=='done')return;
-    const days=_daysSince(doneDate);
-    const dueNum=_reminderNum(days);
-    if(!dueNum)return;
-    if((DB.payReminderSent[key]||0)>=dueNum)return;
+  if(!(currentRole==='office'||currentRole==='principal'))return;
+  const today=new Date(),DAY=86400000;
+  const due3=last=>!last||(today-new Date(last))>=3*DAY;
+  const toSend=[];
+  // מרצים + צוות מנהלי (status=done, עצמאי, יש מייל)
+  Object.entries(DB.payStatuses||{}).forEach(([key,st])=>{
+    if(st!=='done')return;
     const month=key.slice(0,7);
     let params=null;
     if(key.slice(8,12)==='adm_'){
@@ -4176,23 +4183,26 @@ function _promptPaymentReminders(){
       const lid=key.slice(8);const l=getLect(lid);
       if(l&&l.type!=='employee'&&l.email){const c=calcLect(lid,month);if(c)params={name:l.name,email:l.email,amount:c.total,description:'תשלום',month,type:l.type};}
     }
-    if(params)due.push({key,dueNum,params});
+    if(params&&due3(_lastSentFor(key,month,params.name)))toSend.push({k:key,params});
   });
-  // תשלומים נוספים
-  (DB.miscPayments||[]).filter(p=>p.status==='done'&&p.email).forEach(p=>{
-    const key='misc_'+p.id;
-    const doneDate=(DB.payDoneDates||{})[key];if(!doneDate)return;
-    const days=_daysSince(doneDate);const dueNum=_reminderNum(days);if(!dueNum)return;
-    if((DB.payReminderSent[key]||0)>=dueNum)return;
-    due.push({key,dueNum,params:{name:p.name,email:p.email,amount:p.amount,description:'תשלום',month:p.month,type:p.type||'freelance_exempt'}});
+  // תשלומים נוספים (status=done)
+  (DB.miscPayments||[]).forEach(p=>{
+    if(p.status!=='done'||!p.email)return;
+    const k=(p.month||'')+'_misc_'+p.id;
+    if(due3(_lastSentFor(k,p.month,p.name)))toSend.push({k,params:{name:p.name,email:p.email,amount:p.amount,description:'תשלום',month:p.month,type:p.type||'freelance_exempt'}});
   });
-  if(!due.length)return;
-  const HEB_M=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
-  const lines=due.map(x=>{const d=new Date(x.params.month+'-01');return '• '+x.params.name+' ('+HEB_M[d.getMonth()]+' '+d.getFullYear()+') — תזכורת '+x.dueNum+'/3';}).join('\n');
-  if(!confirm('המרצים הבאים טרם שלחו קבלה:\n\n'+lines+'\n\nלשלוח להם תזכורת בדוא"ל?'))return;
-  let changed=false;
-  due.forEach(({key,dueNum,params},i)=>{DB.payReminderSent[key]=dueNum;changed=true;setTimeout(()=>_sendPaymentEmail(params),i*1500);});
-  if(changed)saveDB();
+  // תשלומים ידניים (עצמאי, status=done)
+  (DB.manualPayments||[]).forEach(p=>{
+    if(p.status!=='done'||p.type==='employee'||!p.email)return;
+    const k=(p.month||'')+'_mpy_'+p.id;const amt=p.amount+(p.type==='freelance_vat'?Math.round(p.amount*0.18):0);
+    if(due3(_lastSentFor(k,p.month,p.name)))toSend.push({k,params:{name:p.name,email:p.email,amount:amt,description:'תשלום',month:p.month,type:p.type}});
+  });
+  if(!toSend.length)return;
+  const CAP=15,batch=toSend.slice(0,CAP);
+  batch.forEach((it,i)=>{_rcptRecordEmail(it.k);setTimeout(()=>_sendPaymentEmail(it.params,true),i*1500);});
+  saveDB();
+  logAction('תזכורות קבלה (אוטומטי)',batch.length+' נמענים');
+  try{if(!DB.messages)DB.messages=[];DB.messages.unshift({id:'msg_'+Date.now()+'_r',ts:new Date().toISOString(),role:'system',roleName:'מערכת',text:'📧 נשלחו '+batch.length+' תזכורות קבלה אוטומטיות (כל 3 ימים עד התקבלת חשבונית)'+(toSend.length>CAP?' · '+(toSend.length-CAP)+' נוספות בכניסה הבאה':''),type:'reminder'});if(typeof renderDashMessages==='function')renderDashMessages();}catch(e){}
 }
 
 function renderReminderStatus(){
