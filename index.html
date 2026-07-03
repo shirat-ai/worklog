@@ -424,6 +424,7 @@ tr.drag-over td{border-top:2px solid #10717E}
     </div>
 
     <div id="sched-panel" style="display:none">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px"><button class="btn btn-sm" style="font-size:11px;background:var(--color-background-secondary);border:0.5px solid #10717E;color:#10717E;font-weight:500" onclick="exportScheduleExcel()">⬇ ייצוא מערכת שעות</button></div>
       <div id="sched-editor"></div>
     </div>
 
@@ -2713,6 +2714,15 @@ const SCHED_KEYS=[
   {key:'2_w',label:'יום שלישי — נשים'},{key:'4_w',label:'יום חמישי — נשים'}
 ];
 
+function exportScheduleExcel(){
+  const DOW=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];const TR={m:'מסלול גברים',w:'מסלול נשים'};
+  const sched=DB.schedule||{};
+  const keys=Object.keys(sched).sort((a,b)=>{const pa=a.split('_'),pb=b.split('_');return((pa[1]==='m'?0:1)*10+parseInt(pa[0]))-((pb[1]==='m'?0:1)*10+parseInt(pb[0]));});
+  const rows=[['מסלול','יום','קורס / קבוצה','מרצה','שם קורס','התחלה','סיום','ש"ה']];
+  keys.forEach(k=>{const p=k.split('_');const dow=parseInt(p[0]),tr=p[1];((sched[k]&&sched[k].groups)||[]).forEach(g=>{(g.rows||[]).forEach(r=>{const l=getLect(r.lectId);rows.push([TR[tr]||tr,DOW[dow],g.name||'',l?l.name:(r.lectId||''),r.courseName||'',r.start||'',r.end||'',r.payHrs||0]);});});});
+  if(rows.length<2){alert('אין מערכת שעות מוגדרת');return;}
+  _downloadXls(rows,'מערכת_שעות.xls');
+}
 function renderSchedEditor(){const el=document.getElementById('sched-editor');if(!el)return;el.innerHTML=SCHED_KEYS.map(sk=>{const sched=DB.schedule[sk.key]||{groups:[]};const track=sk.key.endsWith('_m')?'m':'w';const grpHtml=(sched.groups||[]).map((g,gi)=>`<div style="margin-bottom:8px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:var(--color-background-secondary)"><select style="border:none;background:transparent;font-size:12px;font-weight:500;color:var(--color-text-primary);flex:1" onchange="updateSchedGroup('${sk.key}',${gi},'name',this.value)">${getGrps(track).map(g2=>'<option value="'+g2+'"'+(g2===g.name?' selected':'')+'>'+g2+'</option>').join('')}</select><button class="btn-del" onclick="removeSchedGroup('${sk.key}',${gi})">×</button></div><div style="padding:6px 10px">${(g.rows||[]).map((r,ri)=>`<div style="display:flex;gap:4px;align-items:center;margin-bottom:3px"><select style="font-size:11px;flex:1;min-width:80px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'lectId',this.value)">${buildLectOpts(track,r.lectId)}</select><input value="${r.courseName||''}" placeholder="שם קורס" style="flex:1;min-width:80px;font-size:11px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'courseName',this.value)"><select style="font-size:11px;width:62px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'start',this.value)">${TIMES.map(t=>'<option value="'+t+'"'+(t===r.start?' selected':'')+'>'+t+'</option>').join('')}</select><select style="font-size:11px;width:62px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'end',this.value)">${TIMES.map(t=>'<option value="'+t+'"'+(t===r.end?' selected':'')+'>'+t+'</option>').join('')}</select><input type="number" data-sched-pay="${sk.key}_${gi}_${ri}" value="${r.payHrs||0}" step="0.25" style="width:46px;font-size:11px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'payHrs',parseFloat(this.value)||0)"><button class="btn-del" onclick="removeSchedRow('${sk.key}',${gi},${ri})">×</button></div>`).join('')}<button class="btn btn-sm" style="font-size:10px;margin-top:3px" onclick="addSchedRow('${sk.key}',${gi})">+ מרצה</button></div></div>`).join('');return`<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="ct" style="margin:0">${sk.label}</div><button class="btn btn-sm btn-g" onclick="addSchedGroup('${sk.key}','${track}')">+ קבוצה</button></div>${grpHtml}</div>`;}).join('');}
 function updateSchedGroup(key,gi,field,val){if(!DB.schedule[key])DB.schedule[key]={groups:[]};if(!DB.schedule[key].groups[gi])DB.schedule[key].groups[gi]={name:val,rows:[]};DB.schedule[key].groups[gi][field]=val;saveDB();}
 function calcTimeDiff(s,e){var sp=s.split(':'),ep=e.split(':');var diff=(parseInt(ep[0])*60+parseInt(ep[1]))-(parseInt(sp[0])*60+parseInt(sp[1]));return diff>0?diff/60:0;}
