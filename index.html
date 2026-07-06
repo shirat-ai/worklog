@@ -137,6 +137,7 @@ tr.drag-over td{border-top:2px solid #10717E}
       <div class="login-opt" onclick="startLogin('coord_w')"><div class="login-opt-title">רכזת מסלול נשים</div><div class="login-opt-sub">רישום שעות, שיעורי כלי, הגדרות</div></div>
       <div class="login-opt" onclick="startLogin('office')"><div class="login-opt-title">מנהלת משרד</div><div class="login-opt-sub">צפייה וניהול שוטף</div></div>
       <div class="login-opt" onclick="startLogin('principal')"><div class="login-opt-title">מנהל בית הספר</div><div class="login-opt-sub">גישה מלאה כולל אישורים</div></div>
+      <div class="login-opt" onclick="startLogin('staff')"><div class="login-opt-title">צוות מנהלי — דיווח שעות</div><div class="login-opt-sub">כל עובד/ת בוחר/ת את עצמו/ה ומדווח/ת שעות</div></div>
     </div>
     <div id="pin-form" class="pin-form hidden">
       <div style="display:flex;align-items:center;gap:7px;margin-bottom:4px"><button class="btn btn-sm" onclick="backToOpts()">← חזור</button><span style="font-size:13px;font-weight:500" id="pin-lbl"></span></div>
@@ -332,6 +333,17 @@ tr.drag-over td{border-top:2px solid #10717E}
     <div id="admin-import-preview" style="display:none;margin-top:10px"></div>
   </div>
 
+  <div class="pg" id="pg-staffrep">
+    <div class="ct" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <span>דיווח שעות — צוות מנהלי</span>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select id="staff-report-sel" style="font-size:13px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500" onchange="onStaffPick()"></select>
+        <select id="staff-report-month" style="font-size:13px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="renderStaffReport()"></select>
+      </div>
+    </div>
+    <div id="staff-report-body"></div>
+  </div>
+
 
   <div class="pg" id="pg-gantt">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">
@@ -471,6 +483,7 @@ tr.drag-over td{border-top:2px solid #10717E}
           <div class="fg"><label>קוד רכזת מסלול נשים</label><input type="password" id="code-coord_w" placeholder="קוד חדש"><button class="btn btn-sm btn-g" style="margin-top:5px;width:fit-content" onclick="saveCode('coord_w')">שמור</button></div>
             <div class="fg"><label>קוד מנהל בית הספר</label><input type="password" id="code-principal" placeholder="קוד חדש"><button class="btn btn-sm btn-g" style="margin-top:5px;width:fit-content" onclick="saveCode('principal')">שמור</button></div>
             <div class="fg"><label>קוד מנהלת משרד</label><input type="password" id="code-office" placeholder="קוד חדש"><button class="btn btn-sm btn-g" style="margin-top:5px;width:fit-content" onclick="saveCode('office')">שמור</button></div>
+            <div class="fg"><label>קוד צוות מנהלי (דיווח שעות)</label><input type="password" id="code-staff" placeholder="קוד חדש"><button class="btn btn-sm btn-g" style="margin-top:5px;width:fit-content" onclick="saveCode('staff')">שמור</button><div style="font-size:10px;color:var(--color-text-tertiary);margin-top:3px">סיסמה משותפת לכל הצוות המנהלי — כל עובד/ת נכנס/ת, בוחר/ת את שמו/ה ומדווח/ת שעות. ברירת מחדל: 2024</div></div>
           </div>
         </div>
       </div>
@@ -915,6 +928,7 @@ function showAdminDetail(staffId,month){
   document.body.appendChild(ov);
 }
 
+function _afterAdminEdit(){if(currentRole==='staff'){renderStaffReport();}else{renderAdminHours();}}
 function updateAdminSlotNew(staffId,month,day,slotIdx,field,val){
   if(!DB.adminHours)DB.adminHours={};
   const key=month+'_'+staffId;
@@ -928,7 +942,7 @@ function updateAdminSlotNew(staffId,month,day,slotIdx,field,val){
   if(slotIdx>0&&!slots[slotIdx].start&&!slots[slotIdx].end)slots.splice(slotIdx,1);
   if(slots.length===0||(slots.length===1&&!slots[0].start&&!slots[0].end))delete DB.adminHours[key][day];
   else DB.adminHours[key][day]=slots;
-  saveDB();renderAdminHours();
+  saveDB();_afterAdminEdit();
 }
 function renderAdminHours(){
   var sel=document.getElementById('admin-month');
@@ -1181,6 +1195,156 @@ function renderAdminHours(){
 }
 
 
+// ══════════════════════════════════════════════
+// דיווח שעות עצמי — צוות מנהלי (role: staff)
+// כניסה משותפת → בחירת-שם → דיווח החודש הנוכחי + הקודם בלבד
+// ══════════════════════════════════════════════
+let _staffRepSid=null,_staffRepMonth=null;
+function initStaffReport(){
+  const sel=document.getElementById('staff-report-sel');
+  const msel=document.getElementById('staff-report-month');
+  if(!sel||!msel)return;
+  const staff=DB.adminStaff||[];
+  const prevPick=sel.value;
+  sel.innerHTML='<option value="">— בחר/י את שמך —</option>'+staff.map(s=>'<option value="'+escH(s.id)+'">'+escH(s.name)+'</option>').join('');
+  if(prevPick&&staff.some(s=>s.id===prevPick))sel.value=prevPick;
+  const HM=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const now=new Date();
+  const curM=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+  const prevD=new Date(now.getFullYear(),now.getMonth()-1,1);
+  const prevM=prevD.getFullYear()+'-'+String(prevD.getMonth()+1).padStart(2,'0');
+  const months=[curM,prevM];
+  const pm=(msel.value&&months.includes(msel.value))?msel.value:curM;
+  msel.innerHTML=months.map(v=>{const d=new Date(v+'-01');return'<option value="'+v+'"'+(v===pm?' selected':'')+'>'+HM[d.getMonth()]+' '+d.getFullYear()+'</option>';}).join('');
+  renderStaffReport();
+}
+function onStaffPick(){renderStaffReport();}
+function renderStaffReport(){
+  const sel=document.getElementById('staff-report-sel');
+  const msel=document.getElementById('staff-report-month');
+  const body=document.getElementById('staff-report-body');
+  if(!body)return;
+  const sid=sel?sel.value:'';
+  const month=msel?msel.value:'';
+  _staffRepSid=sid;_staffRepMonth=month;
+  const staff=DB.adminStaff||[];
+  const s=staff.find(x=>x.id===sid);
+  body.innerHTML='';
+  if(!s){body.innerHTML='<div style="padding:44px 12px;text-align:center;color:var(--color-text-tertiary);font-size:14px">בחר/י את שמך מהרשימה למעלה כדי לדווח שעות</div>';return;}
+  if(!month)return;
+  const key=month+'_'+s.id;
+  const hrs=(DB.adminHours||{})[key]||{};
+  const overrides=hrs._overrides||{};
+  const travelMap=hrs._travelDays||{};
+  const notesMap=hrs._notes||{};
+  const approved=(DB.adminHoursStatus||{})[key]==='approved';
+  const HM=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const DNAME=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
+  const parts=month.split('-');const yy=parseInt(parts[0]);const mm=parseInt(parts[1]);
+  const daysInMonth=new Date(yy,mm,0).getDate();
+
+  // ── כרטיס-כותרת ──
+  const head=document.createElement('div');
+  head.style.cssText='background:var(--color-background-secondary);border:0.5px solid var(--color-border-secondary);border-radius:12px;padding:14px 16px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px';
+  head.innerHTML='<div><div style="font-size:18px;font-weight:800;color:var(--color-text-primary)">'+escH(s.name)+'</div><div style="font-size:12px;color:var(--color-text-secondary);margin-top:2px">'+HM[mm-1]+' '+yy+'</div></div>'
+    +'<div style="text-align:left"><div id="staff-rep-total" style="font-size:22px;font-weight:800;color:#10717E">0</div><div style="font-size:11px;color:var(--color-text-secondary)">סה"כ שעות החודש</div></div>';
+  body.appendChild(head);
+
+  if(approved){
+    const ban=document.createElement('div');
+    ban.style.cssText='background:rgba(16,113,126,0.1);border:0.5px solid #10717E;border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#085041;font-weight:500';
+    ban.textContent='✓ הדיווח לחודש זה אושר ע"י המשרד — לא ניתן לערוך. לתיקון פנה/י למשרד.';
+    body.appendChild(ban);
+  }
+
+  const mkTS=function(val,onChange){
+    const ts=document.createElement('input');
+    ts.type='time';ts.step='60';ts.disabled=approved;ts.value=val||'';
+    ts.style.cssText='font-size:13px;padding:3px 4px;border:0.5px solid var(--color-border-secondary);border-radius:5px;background:var(--color-background-primary);color:var(--color-text-primary);width:78px'+(approved?';opacity:0.6':'');
+    ts.onchange=onChange;return ts;
+  };
+
+  let total=0,officeDays=0;
+  const list=document.createElement('div');
+  list.style.cssText='display:flex;flex-direction:column;gap:6px';
+
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=month+'-'+String(d).padStart(2,'0');
+    const dn=new Date(ds+'T12:00:00').getDay();
+    if(dn===6)continue; // דלג שבת
+    const isFri=dn===5;
+    const dayData=_normAdminDay(hrs[d])||[];
+    const sl0=dayData[0]||{start:'',end:''};
+    const sl1=dayData[1]||{start:'',end:''};
+    const h0=calcSlotHrs(sl0.start||'',sl0.end||'');
+    const h1=calcSlotHrs(sl1.start||'',sl1.end||'');
+    const calcH=h0+h1;
+    const ovD=overrides[d]!==undefined?parseFloat(overrides[d]):null;
+    const eff=ovD!==null?ovD:calcH;
+    const hasDay=calcH>0||ovD!==null;
+    total+=eff;
+
+    const card=document.createElement('div');
+    card.style.cssText='display:flex;align-items:flex-start;gap:10px;padding:8px 10px;border:0.5px solid var(--color-border-tertiary);border-radius:9px;background:'+(isFri?'rgba(253,246,227,0.4)':'var(--color-background-primary)')+(hasDay?';border-color:rgba(16,113,126,0.4)':'');
+
+    const dlab=document.createElement('div');
+    dlab.style.cssText='width:56px;flex-shrink:0;font-size:12px;font-weight:600;color:'+(isFri?'#854F0B':'var(--color-text-primary)')+';padding-top:4px';
+    dlab.innerHTML=d+'.'+mm+'<div style="font-size:10px;font-weight:400;color:var(--color-text-tertiary)">'+DNAME[dn]+'</div>';
+    card.appendChild(dlab);
+
+    const right=document.createElement('div');right.style.cssText='flex:1;min-width:0';
+
+    const mkShift=function(sl,slIdx,h){
+      const r=document.createElement('div');
+      r.style.cssText='display:flex;align-items:center;gap:5px;flex-wrap:wrap'+(slIdx>0?';margin-top:4px':'');
+      const lbl=document.createElement('span');lbl.textContent=slIdx===0?'משמרת א:':'משמרת ב:';
+      lbl.style.cssText='font-size:11px;color:var(--color-text-tertiary);width:58px;flex-shrink:0';
+      r.appendChild(lbl);
+      r.appendChild(mkTS(sl.start,function(){updateAdminSlotNew(s.id,month,d,slIdx,'start',this.value);}));
+      const dash=document.createElement('span');dash.textContent='–';dash.style.cssText='color:var(--color-text-tertiary)';r.appendChild(dash);
+      r.appendChild(mkTS(sl.end,function(){updateAdminSlotNew(s.id,month,d,slIdx,'end',this.value);}));
+      if(h>0){const ch=document.createElement('span');ch.textContent=h.toFixed(2).replace(/\.?0+$/,'')+'ש\'';ch.style.cssText='font-size:11px;color:#10717E;font-weight:600';r.appendChild(ch);}
+      if((sl.start||sl.end)&&!approved){const xb=document.createElement('button');xb.textContent='×';xb.title='נקה משמרת';xb.style.cssText='font-size:14px;color:#A32D2D;background:none;border:none;cursor:pointer;padding:0 3px;line-height:1';xb.onclick=function(){clearAdminSlot(s.id,month,d,slIdx);};r.appendChild(xb);}
+      return r;
+    };
+    right.appendChild(mkShift(sl0,0,h0));
+    if((sl0.start&&sl0.end)||sl1.start||sl1.end)right.appendChild(mkShift(sl1,1,h1));
+
+    const bottom=document.createElement('div');bottom.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:5px';
+    if(hasDay){const sm=document.createElement('span');sm.style.cssText='font-size:11px;font-weight:700;color:#085041;background:rgba(16,113,126,0.08);padding:2px 8px;border-radius:5px';sm.textContent='סה"כ יום: '+eff.toFixed(2).replace(/\.?0+$/,'')+'ש\'';bottom.appendChild(sm);}
+    if(s.travel>0&&hasDay){
+      const isOfc=travelMap[d]!==false;if(isOfc)officeDays++;
+      const mkLoc=function(label,office){const b=document.createElement('button');b.textContent=label;b.disabled=approved;const selb=(office===isOfc);b.style.cssText='font-size:11px;padding:2px 8px;border-radius:5px;cursor:'+(approved?'default':'pointer')+';border:0.5px solid;'+(selb?(office?'background:rgba(16,113,126,0.18);color:#085041;border-color:#10717E;font-weight:700':'background:rgba(133,79,11,0.12);color:#854F0B;border-color:#D4860A;font-weight:700'):'background:transparent;color:var(--color-text-tertiary);border-color:var(--color-border-tertiary)');b.onclick=function(){updateAdminTravelDay(s.id,month,d,office);};return b;};
+      bottom.appendChild(mkLoc('🏢 משרד',true));
+      bottom.appendChild(mkLoc('🏠 בית',false));
+    }
+    const ovWrap=document.createElement('span');ovWrap.style.cssText='display:inline-flex;align-items:center;gap:3px';
+    const ovLbl=document.createElement('span');ovLbl.textContent='שעות ידני:';ovLbl.style.cssText='font-size:11px;color:var(--color-text-tertiary)';ovWrap.appendChild(ovLbl);
+    const ovInp=document.createElement('input');ovInp.type='number';ovInp.min='0';ovInp.step='0.25';ovInp.placeholder='—';ovInp.value=ovD!==null?ovD:'';ovInp.disabled=approved;ovInp.title='ערך ידני — מחליף חישוב לפי שעון';
+    ovInp.style.cssText='width:52px;font-size:12px;padding:2px 4px;border:0.5px solid '+(ovD!==null?'#10717E':'var(--color-border-tertiary)')+';border-radius:5px;background:var(--color-background-primary);color:'+(ovD!==null?'#10717E':'var(--color-text-secondary)')+';text-align:center';
+    ovInp.onchange=function(){updateAdminDayOverride(s.id,month,d,this.value!==''?this.value:null);};
+    ovWrap.appendChild(ovInp);bottom.appendChild(ovWrap);
+    right.appendChild(bottom);
+
+    const noteInp=document.createElement('input');noteInp.type='text';noteInp.placeholder='הערה ליום (לא חובה)...';noteInp.value=notesMap[d]||'';noteInp.disabled=approved;
+    noteInp.style.cssText='width:100%;font-size:11px;padding:3px 7px;margin-top:5px;border:0.5px solid '+(notesMap[d]?'#D4860A':'var(--color-border-tertiary)')+';border-radius:5px;background:var(--color-background-primary);color:'+(notesMap[d]?'#854F0B':'var(--color-text-secondary)');
+    noteInp.onchange=function(){updateAdminNote(s.id,month,d,this.value);};
+    right.appendChild(noteInp);
+
+    card.appendChild(right);
+    list.appendChild(card);
+  }
+  body.appendChild(list);
+
+  const foot=document.createElement('div');
+  foot.style.cssText='margin-top:14px;padding:12px 16px;background:rgba(16,113,126,0.06);border-radius:10px;font-size:13px;color:var(--color-text-primary);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px';
+  const travelTxt=s.travel>0?' · 🏢 '+officeDays+' ימי משרד':'';
+  foot.innerHTML='<span>סה"כ שעות מדווחות'+travelTxt+'</span><strong style="color:#10717E;font-size:15px">'+(+total.toFixed(2))+' ש"ה</strong>';
+  body.appendChild(foot);
+
+  const totEl=document.getElementById('staff-rep-total');if(totEl)totEl.textContent=(+total.toFixed(2))+'';
+}
+
 function _normAdminDay(d){
   // migrate old {slots:[{s,e}],total} format → [{start,end}]
   if(Array.isArray(d))return d.map(sl=>({start:sl.start||sl.s||'',end:sl.end||sl.e||''}));
@@ -1226,7 +1390,7 @@ function clearAdminSlot(staffId,month,day,idx){
   slots.splice(idx,1);
   if(slots.length&&(slots[0].start||slots[0].end))DB.adminHours[key][day]=slots;
   else delete DB.adminHours[key][day];
-  saveDB();renderAdminHours();
+  saveDB();_afterAdminEdit();
 }
 
 function getAdminHrsTotal(key){
@@ -1282,7 +1446,7 @@ function updateAdminDayOverride(sid,month,day,val){
   if(!DB.adminHours[key]._overrides)DB.adminHours[key]._overrides={};
   var v=parseFloat(val);
   if(val!==null&&!isNaN(v))DB.adminHours[key]._overrides[day]=v;else delete DB.adminHours[key]._overrides[day];
-  saveDB();renderAdminHours();
+  saveDB();_afterAdminEdit();
 }
 function approveAdminHours(sid,month){
   if(!DB.adminHoursStatus)DB.adminHoursStatus={};
@@ -3562,13 +3726,13 @@ function getGrps(track){return(DB.groups&&DB.groups[track])||[];}
 function studentTotalUsed(sid){return DB.privateLessons.filter(pl=>pl.studentId===sid&&pl.privApproval!=='rejected').reduce((s,pl)=>s+toAcad(pl.duration),0);}
 function studentEffectiveQuota(s){return s.usedOverride!=null?s.usedOverride:s.totalQuota;}
 
-function startLogin(role){if(role==='teacher'){enterApp('teacher');return;}if(role==='coord_m'||role==='coord_w'||role==='office'){pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent=role==='office'?'מנהלת משרד':role==='coord_m'?'רכז מסלול גברים':'רכזת מסלול נשים';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);return;}pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent='מנהל בית הספר';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);}
+function startLogin(role){if(role==='teacher'){enterApp('teacher');return;}if(role==='coord_m'||role==='coord_w'||role==='office'||role==='staff'){pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent=role==='office'?'מנהלת משרד':role==='coord_m'?'רכז מסלול גברים':role==='coord_w'?'רכזת מסלול נשים':'צוות מנהלי — דיווח שעות';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);return;}pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent='מנהל בית הספר';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);}
 function backToOpts(){document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');pendingRole=null;}
 function submitPin(){
   const lockUntil=parseInt(sessionStorage.getItem('sh_lock')||'0');
   if(Date.now()<lockUntil){const rem=Math.ceil((lockUntil-Date.now())/1000);document.getElementById('pin-err').textContent='נחסמת — המתן '+rem+' שניות';return;}
   const pin=document.getElementById('pin-input').value;
-  const expected=pendingRole==='coord_m'?(DB.codes.coord_m||'1234'):pendingRole==='coord_w'?(DB.codes.coord_w||'5678'):pendingRole==='office'?(DB.codes.office||'9999'):DB.codes.principal;
+  const expected=pendingRole==='coord_m'?(DB.codes.coord_m||'1234'):pendingRole==='coord_w'?(DB.codes.coord_w||'5678'):pendingRole==='office'?(DB.codes.office||'9999'):pendingRole==='staff'?(DB.codes.staff||'2024'):DB.codes.principal;
   if(pin===expected){sessionStorage.removeItem('sh_lock');sessionStorage.removeItem('sh_fails');enterApp(pendingRole);}
   else{
     const fails=(parseInt(sessionStorage.getItem('sh_fails')||'0'))+1;
@@ -3577,7 +3741,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal')setTimeout(_promptPaymentReminders,1000);}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal')setTimeout(_promptPaymentReminders,1000);}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
@@ -3587,8 +3751,8 @@ function checkReturnedItems(){
   if(confirm(msg)){const btn=document.querySelector('#main-nav .nb');nav('approval',btn);}
 }
 function logout(){clearTimeout(_sessionTimer);_sessionTimer=null;currentRole=null;pendingRole=null;currentTrack=null;document.getElementById('login-screen').style.display='flex';document.getElementById('app-screen').classList.remove('active');document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');document.getElementById('pin-input').value='';}
-const ROLE_PAGES={principal:['dash','entry','private','approval','monthly','payments','admin','gantt','settings'],coord_m:['dash','entry','private','approval','monthly','payments','gantt','settings'],coord_w:['dash','entry','private','approval','monthly','payments','gantt','settings'],office:['dash','entry','private','payments','monthly','admin','gantt','settings'],teacher:['teacher']};
-function applyRoleNav(role){const allowed=ROLE_PAGES[role]||ROLE_PAGES.principal;let first=null;document.getElementById('main-nav').querySelectorAll('.nb').forEach(btn=>{const m=btn.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;const show=id&&allowed.includes(id);btn.style.display=show?'':'none';if(show&&!first)first=btn;});document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));if(first){const m=first.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;if(id){document.getElementById('pg-'+id)?.classList.add('act');first.classList.add('act');}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='private')renderPrivate();if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}}}
+const ROLE_PAGES={principal:['dash','entry','private','approval','monthly','payments','admin','gantt','settings'],coord_m:['dash','entry','private','approval','monthly','payments','gantt','settings'],coord_w:['dash','entry','private','approval','monthly','payments','gantt','settings'],office:['dash','entry','private','payments','monthly','admin','gantt','settings'],teacher:['teacher'],staff:['staffrep']};
+function applyRoleNav(role){if(role==='staff'){document.getElementById('main-nav').style.display='none';document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.getElementById('pg-staffrep').classList.add('act');initStaffReport();return;}document.getElementById('main-nav').style.display='';const allowed=ROLE_PAGES[role]||ROLE_PAGES.principal;let first=null;document.getElementById('main-nav').querySelectorAll('.nb').forEach(btn=>{const m=btn.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;const show=id&&allowed.includes(id);btn.style.display=show?'':'none';if(show&&!first)first=btn;});document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));if(first){const m=first.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;if(id){document.getElementById('pg-'+id)?.classList.add('act');first.classList.add('act');}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='private')renderPrivate();if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}}}
 function nav(id,btn){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));document.getElementById('pg-'+id)?.classList.add('act');if(btn)btn.classList.add('act');if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='private')renderPrivate();if(id==='approval'){approvalTrackFilter=currentRole==='coord_m'?'m':currentRole==='coord_w'?'w':'all';renderApproval();switchATab('days');}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='settings'){renderSettings();switchSTab('lect');}if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='gantt'){renderGantt();}if(id==='admin'){renderAdminHours();}}
 
 function buildMonthCheckboxes(){
@@ -4053,7 +4217,7 @@ function updateAdminTravelDay(staffId,month,day,isOffice){
   if(!DB.adminHours[key])DB.adminHours[key]={};
   if(!DB.adminHours[key]._travelDays)DB.adminHours[key]._travelDays={};
   DB.adminHours[key]._travelDays[day]=isOffice;
-  saveDB();renderAdminHours();
+  saveDB();_afterAdminEdit();
 }
 function updateAdminNote(staffId,month,day,val){
   if(!DB.adminHours)DB.adminHours={};
