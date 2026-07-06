@@ -4030,7 +4030,8 @@ function _monthlyStatusMatch(st){
 // תשלומים שלא שולמו מחודשים קודמים (status≠שולם) — לתצוגה בחודש הנוכחי כ"מועברים".
 // תצוגה בלבד — הנתון נשאר בחודש המקור; הפעולות מעדכנות את מפתח-המקור.
 function _carriedOverPayments(viewedMonth){
-  const PAID=new Set(['done','received','invoice']);
+  // "הושלם" = קבלה/חשבונית התקבלה, או שכיר ששולם (שכיר לא צריך קבלה). ספק ששולם וטרם נתן קבלה — נשאר מועבר.
+  const isClosed=(st,type)=>st==='received'||st==='invoice'||(st==='done'&&type==='employee');
   const months=new Set();
   (DB.days||[]).forEach(d=>{const m=(d.date||'').slice(0,7);if(m&&m<viewedMonth&&d.dayApproval==='approved')months.add(m);});
   (DB.privateLessons||[]).forEach(p=>{const m=(p.date||'').slice(0,7);if(m&&m<viewedMonth&&p.privApproval==='approved')months.add(m);});
@@ -4043,10 +4044,10 @@ function _carriedOverPayments(viewedMonth){
       ...(DB.days||[]).filter(d=>d.date.startsWith(om)&&d.dayApproval==='approved').flatMap(d=>(d.groups||[]).flatMap(g=>g.rows.map(r=>r.lectId))),
       ...(DB.privateLessons||[]).filter(pl=>pl.date.startsWith(om)&&pl.privApproval==='approved').map(pl=>pl.lectId)
     ].filter(Boolean))];
-    lids.forEach(lid=>{const calc=calcLect(lid,om);const ov=(DB.payOverrides||{})[om+'_'+lid]||{};if(!calc||(calc.total===0&&!Object.keys(ov).length))return;const st=(DB.payStatuses||{})[om+'_'+lid]||'pending';if(PAID.has(st))return;out.push({kind:'pay',key:om+'_'+lid,om,name:calc.l.name,amount:calc.total,status:st});});
-    getAdminMonthlyRows(om).forEach(r=>{const st=(DB.payStatuses||{})[om+'_adm_'+r.id]||'pending';if(PAID.has(st))return;out.push({kind:'pay',key:om+'_adm_'+r.id,om,name:r.name,amount:r.total,status:st});});
-    (DB.miscPayments||[]).forEach(p=>{if(p.month!==om||!(p.amount>0))return;const st=p.status||'pending';if(PAID.has(st))return;out.push({kind:'misc',id:p.id,om,name:p.name,amount:p.amount,status:st});});
-    (DB.manualPayments||[]).forEach(p=>{if(p.month!==om)return;const st=p.status||'pending';if(PAID.has(st))return;const amt=p.amount+(p.type==='freelance_vat'?Math.round(p.amount*0.18):0);out.push({kind:'manual',id:p.id,om,name:p.name,amount:amt,status:st});});
+    lids.forEach(lid=>{const calc=calcLect(lid,om);const ov=(DB.payOverrides||{})[om+'_'+lid]||{};if(!calc||(calc.total===0&&!Object.keys(ov).length))return;const st=(DB.payStatuses||{})[om+'_'+lid]||'pending';if(isClosed(st,calc.l.type))return;out.push({kind:'pay',key:om+'_'+lid,om,name:calc.l.name,amount:calc.total,status:st,type:calc.l.type});});
+    getAdminMonthlyRows(om).forEach(r=>{const st=(DB.payStatuses||{})[om+'_adm_'+r.id]||'pending';if(isClosed(st,r.type))return;out.push({kind:'pay',key:om+'_adm_'+r.id,om,name:r.name,amount:r.total,status:st,type:r.type});});
+    (DB.miscPayments||[]).forEach(p=>{if(p.month!==om||!(p.amount>0))return;const st=p.status||'pending';if(isClosed(st,'freelance_vat'))return;out.push({kind:'misc',id:p.id,om,name:p.name,amount:p.amount,status:st,type:'freelance_vat'});});
+    (DB.manualPayments||[]).forEach(p=>{if(p.month!==om)return;const st=p.status||'pending';if(isClosed(st,p.type))return;const amt=p.amount+(p.type==='freelance_vat'?Math.round(p.amount*0.18):0);out.push({kind:'manual',id:p.id,om,name:p.name,amount:amt,status:st,type:p.type});});
   });
   return out;
 }
@@ -4229,15 +4230,22 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
   if(carried.length){
     const HEBm=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
     const hdr=document.createElement('div');
-    hdr.innerHTML='<div style="font-size:12px;font-weight:600;color:#854F0B;margin:14px 0 6px;padding:8px 11px;background:rgba(250,238,218,0.55);border:0.5px solid #FAC775;border-radius:var(--border-radius-md)">⏮ לא שולמו מחודשים קודמים — מועברים ('+carried.length+')</div>';
+    hdr.innerHTML='<div style="font-size:12px;font-weight:600;color:#854F0B;margin:14px 0 6px;padding:8px 11px;background:rgba(250,238,218,0.55);border:0.5px solid #FAC775;border-radius:var(--border-radius-md)">⏮ מועברים מחודשים קודמים — טרם הושלמו ('+carried.length+')</div>';
     container.appendChild(hdr);
     carried.forEach(it=>{
       const d=new Date(it.om+'-01');const omLabel=HEBm[d.getMonth()]+' '+d.getFullYear();
-      const stBadge=it.status==='approved'?'<span class="badge b-ok" style="font-size:10px">אושר — ממתין לתשלום</span>':'<span class="badge b-pend" style="font-size:10px">ממתין</span>';
       const fn=it.kind==='misc'?`updateMiscStatus('${it.id}',`:it.kind==='manual'?`updateManualPayStatus('${it.id}',`:`updatePayStatus('${it.key}',`;
-      const actions=it.status==='approved'
-        ?`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'done')">✓ שולם</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="${fn}'pending')">↩</button>`
-        :`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'approved')">✓ אשר</button>`;
+      let stBadge,actions;
+      if(it.status==='approved'){
+        stBadge='<span class="badge b-ok" style="font-size:10px">אושר — ממתין לתשלום</span>';
+        actions=`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'done')">✓ שולם</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="${fn}'pending')" title="החזר לממתין">↩</button>`;
+      } else if(it.status==='done'){
+        stBadge='<span class="badge b-ok" style="font-size:10px">שולם ✓ — ממתין קבלה</span>';
+        actions=`<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;background:#E8F4FC;color:#085041;border-color:#A0CDE8" onclick="${fn}'received')">התקבלה קבלה / חשבונית ✓</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="${fn}'approved')" title="החזר לממתין תשלום">↩</button>`;
+      } else {
+        stBadge='<span class="badge b-pend" style="font-size:10px">ממתין</span>';
+        actions=`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'approved')">✓ אשר</button>`;
+      }
       const div=document.createElement('div');
       div.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 14px;background:var(--color-background-primary);border:0.5px solid #FAC775;border-right:3px solid #D4860A;border-radius:var(--border-radius-md);margin-bottom:5px"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:12px;font-weight:500">${escH(it.name)}</span><span style="font-size:10px;background:rgba(250,238,218,0.85);color:#854F0B;border:0.5px solid #FAC775;border-radius:3px;padding:1px 6px">מועבר מ-${omLabel}</span>${stBadge}</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:15px;font-weight:500;color:#10717E">${fmtM(it.amount)}</span><div style="display:flex;gap:3px;align-items:center;flex-wrap:wrap">${actions}</div></div></div>`;
       container.appendChild(div);
