@@ -327,6 +327,7 @@ tr.drag-over td{border-top:2px solid #10717E}
         <button class="btn btn-sm" onclick="adminImportExcel()" style="font-size:11px" title="ייבוא עבור עובד אחד">⬆ ייבוא יחיד</button>
         <button class="btn btn-sm" onclick="importAdminMultiExcel()" style="font-size:11px;background:rgba(16,113,126,0.12);border-color:#10717E;color:#10717E" title="ייבוא גיליון שלם — כל העובדים בבת אחת">⬆ ייבוא גיליון</button>
         <button class="btn btn-sm" onclick="downloadAdminTemplate()" style="font-size:11px" title="הורד קובץ Excel לדוגמה למילוי">⬇ הורד תבנית</button>
+        <button id="btn-save-admin" data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:12px;font-weight:600;padding:5px 16px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer" title="שמירה מיידית של כל השעות שהוזנו">💾 שמירה</button>
       </div>
     </div>
     <div id="admin-table"></div>
@@ -339,6 +340,7 @@ tr.drag-over td{border-top:2px solid #10717E}
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <select id="staff-report-sel" style="font-size:13px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500" onchange="onStaffPick()"></select>
         <select id="staff-report-month" style="font-size:13px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="renderStaffReport()"></select>
+        <button id="btn-save-staff" data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:13px;font-weight:600;padding:6px 18px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer" title="שמירה מיידית של השעות שהזנת">💾 שמירה</button>
       </div>
     </div>
     <div id="staff-report-body"></div>
@@ -554,6 +556,27 @@ function saveDB() {
     }
     catch(e) { console.error('Firebase save:', e); _fbIgnoreNext = false; }
   }, 400);
+}
+
+// שמירה מיידית + אישור מהשרת (כפתור "שמירה" ידני — צוות מנהלי)
+function flushSaveNow(btn){
+  // הבטח שכל onchange תלוי (שדה שלא איבד פוקוס) יירשם ל-DB לפני הכתיבה
+  try{ if(document.activeElement&&document.activeElement.blur)document.activeElement.blur(); }catch(e){}
+  clearTimeout(_fbSaveTimer);
+  _fbIgnoreNext=true;
+  const orig=btn?btn.getAttribute('data-label')||btn.textContent:'💾 שמירה';
+  if(btn){btn.disabled=true;btn.textContent='שומר…';btn.style.opacity='0.7';}
+  Promise.resolve(fbDB.ref(FB_PATH).set(JSON.parse(JSON.stringify(DB))))
+    .then(()=>{
+      if(btn){btn.textContent='✓ נשמר בענן';btn.style.opacity='1';btn.style.background='#3B6D11';btn.style.color='#fff';btn.style.borderColor='#3B6D11';
+        setTimeout(()=>{btn.disabled=false;btn.textContent=orig;btn.style.background='';btn.style.color='';btn.style.borderColor='';},2200);}
+      setTimeout(()=>{_fbIgnoreNext=false;},2000);
+    })
+    .catch(e=>{
+      console.error('flush save:',e);_fbIgnoreNext=false;
+      if(btn){btn.disabled=false;btn.textContent='✗ נסה שוב';btn.style.opacity='1';btn.style.background='#A32D2D';btn.style.color='#fff';btn.style.borderColor='#A32D2D';}
+      alert('השמירה לא הושלמה — ייתכן חיבור אינטרנט חלש.\nהנתונים עדיין מוצגים על המסך, נסה/י שוב.');
+    });
 }
 
 function exportEmployeesExcel(month){
@@ -1341,6 +1364,14 @@ function renderStaffReport(){
   const travelTxt=s.travel>0?' · 🏢 '+officeDays+' ימי משרד':'';
   foot.innerHTML='<span>סה"כ שעות מדווחות'+travelTxt+'</span><strong style="color:#10717E;font-size:15px">'+(+total.toFixed(2))+' ש"ה</strong>';
   body.appendChild(foot);
+
+  if(!approved){
+    const saveBar=document.createElement('div');
+    saveBar.style.cssText='margin-top:12px;text-align:center';
+    saveBar.innerHTML='<button data-label="💾 שמירת הדיווח" onclick="flushSaveNow(this)" style="font-size:15px;font-weight:700;padding:11px 40px;border:none;border-radius:10px;background:#10717E;color:#fff;cursor:pointer">💾 שמירת הדיווח</button>'
+      +'<div style="font-size:11px;color:var(--color-text-tertiary);margin-top:6px">הנתונים נשמרים אוטומטית — לחיצה על "שמירה" מוודאת שהכול נקלט בענן</div>';
+    body.appendChild(saveBar);
+  }
 
   const totEl=document.getElementById('staff-rep-total');if(totEl)totEl.textContent=(+total.toFixed(2))+'';
 }
