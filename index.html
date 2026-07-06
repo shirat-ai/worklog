@@ -272,13 +272,14 @@ tr.drag-over td{border-top:2px solid #10717E}
       <div class="card" style="padding:12px">
         <div style="font-size:12px;font-weight:500;margin-bottom:8px">תשלום ידני חדש</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-          <div class="fg" style="width:140px"><label>שם</label><input id="mpy-name" placeholder="שם מלא"></div>
+          <div class="fg" style="width:140px"><label>שם</label><input id="mpy-name" placeholder="שם מלא" list="mpy-payee-list" autocomplete="off" onchange="onMpyNameChange()"><datalist id="mpy-payee-list"></datalist></div>
           <div class="fg" style="width:120px"><label>סוג</label><select id="mpy-type" onchange="onMpyTypeChange()"><option value="employee">שכיר</option><option value="freelance_exempt">עצמאי פטור</option><option value="freelance_vat">עצמאי מורשה</option></select></div>
           <div class="fg" style="width:100px"><label>סכום לפני מע"מ</label><input id="mpy-amount" type="number" min="0" placeholder="₪"></div>
           <div class="fg" style="width:140px"><label>בנק</label><select id="mpy-bank-name"><option value="">— בחר בנק —</option><option value="10">בנק לאומי (10)</option><option value="12">בנק הפועלים (12)</option><option value="11">בנק דיסקונט (11)</option><option value="20">בנק מזרחי-טפחות (20)</option><option value="31">הבינלאומי הראשון (31)</option><option value="17">מרכנתיל דיסקונט (17)</option><option value="13">בנק אגוד (13)</option><option value="14">בנק אוצר החייל (14)</option><option value="54">בנק ירושלים (54)</option><option value="4">בנק יהב (4)</option><option value="99">אחר</option></select></div>
           <div class="fg" style="width:70px"><label>סניף</label><input id="mpy-branch" placeholder="123"></div>
           <div class="fg" style="width:100px"><label>חשבון</label><input id="mpy-account" placeholder="456789"></div>
           <div class="fg" style="width:110px"><label>טלפון</label><input id="mpy-phone" type="tel" placeholder="050-0000000"></div>
+          <div class="fg" style="width:150px"><label>מייל</label><input id="mpy-email" type="email" placeholder="name@email.com"></div>
           <div class="fg" style="width:160px"><label>הערה</label><input id="mpy-note" placeholder="תיאור תשלום..."></div>
           <button class="btn btn-ok btn-sm" onclick="saveManualPay()">שמור</button>
           <button class="btn btn-sm" onclick="document.getElementById('m-manual-pay-form').style.display='none'">ביטול</button>
@@ -2661,7 +2662,7 @@ function loadDB() {
 function _applySnapshot(p) {
   if (!p) return;
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees']
     .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
@@ -2813,7 +2814,7 @@ DB = {
   miscPayments:[],
   activityLog:[],
   payNotes:{},
-  messages:[],adminStaff:[],adminHours:{},lockedMonths:{},ganttPlanned:[],manualPayments:[]
+  messages:[],adminStaff:[],adminHours:{},lockedMonths:{},ganttPlanned:[],manualPayments:[],manualPayees:[]
 };
 
 function parseBankStr(s){if(!s)return{bankName:'',bankCode:'',branch:'',account:''};if(typeof s==='object')return{bankName:s.bankName||'',bankCode:s.bankCode||'',branch:s.branch||'',account:s.account||''};const p=s.split(/[\s,|-]+/);if(p.length>=3)return{bankName:p[0],branch:p[1],account:p[2]};if(p.length===2)return{bankName:p[0],branch:'',account:p[1]};return{bankName:s,branch:'',account:''};}
@@ -4264,9 +4265,15 @@ function toggleAllMonthlyPay(checked){document.querySelectorAll('.mpay-cb').forE
 function updateMonthlySel(){const n=document.querySelectorAll('.mpay-cb:checked').length;const el=document.getElementById('m-bulk-count');if(el)el.textContent=n?n+' נבחרו':'';}
 function applyMonthlyBulkStatus(){const st=document.getElementById('m-bulk-status')?.value;if(!st){alert('בחר סטטוס');return;}const keys=[...document.querySelectorAll('.mpay-cb:checked')].map(cb=>cb.dataset.key);if(!keys.length){alert('לא נבחרו שורות');return;}if(!DB.payStatuses)DB.payStatuses={};const today=new Date().toISOString().split('T')[0];const payKeys=[];const miscIds=[];keys.forEach(k=>{if(k.startsWith('misc_')){const id=k.slice(5);const p=(DB.miscPayments||[]).find(x=>x.id===id);if(p){p.status=st;if(st==='done'){miscIds.push(id);if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates['misc_'+id])DB.payDoneDates['misc_'+id]=today;}}}else{DB.payStatuses[k]=st;if(st==='done'){payKeys.push(k);if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates[k])DB.payDoneDates[k]=today;}}});saveDB();renderMonthly();if(st==='done'&&(payKeys.length||miscIds.length))_offerPaymentEmail(payKeys,miscIds);}
 function overrideF(key,field,val){if(!DB.payOverrides)DB.payOverrides={};if(!DB.payOverrides[key])DB.payOverrides[key]={};DB.payOverrides[key][field]=parseFloat(val)||0;saveDB();renderMonthly();}
-function showManualPayForm(){const f=document.getElementById('m-manual-pay-form');f.style.display=f.style.display==='none'?'':'none';if(f.style.display!=='none'){document.getElementById('mpy-name').focus();onMpyTypeChange();}}
+function showManualPayForm(){const f=document.getElementById('m-manual-pay-form');f.style.display=f.style.display==='none'?'':'none';if(f.style.display!=='none'){_fillMpyPayees();document.getElementById('mpy-name').focus();onMpyTypeChange();}}
 function onMpyTypeChange(){const t=document.getElementById('mpy-type').value;const v=document.getElementById('mpy-vat-note');if(v)v.style.display=t==='freelance_vat'?'block':'none';}
-function saveManualPay(){const name=(document.getElementById('mpy-name').value||'').trim();const type=document.getElementById('mpy-type').value;const amount=parseFloat(document.getElementById('mpy-amount').value)||0;const bankName=(document.getElementById('mpy-bank-name').value||'').trim();const branch=(document.getElementById('mpy-branch').value||'').trim();const account=(document.getElementById('mpy-account').value||'').trim();const phone=(document.getElementById('mpy-phone')?.value||'').trim();const note=(document.getElementById('mpy-note').value||'').trim();if(!name){alert('יש להזין שם');return;}if(!amount){alert('יש להזין סכום');return;}const month=document.getElementById('m-month').value;if(!DB.manualPayments)DB.manualPayments=[];DB.manualPayments.push({id:'mpy_'+Date.now(),month,name,type,amount,bankName,branch,account,phone,note,status:'pending'});saveDB();document.getElementById('m-manual-pay-form').style.display='none';['mpy-name','mpy-amount','mpy-bank-name','mpy-branch','mpy-account','mpy-phone','mpy-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderMonthly();}
+// מאגר מקבלי-תשלום ידני — כמו מאגר המרצים: פרטי בנק/מייל/טלפון נשמרים ומוצעים בשם חוזר
+function _fillMpyPayees(){const dl=document.getElementById('mpy-payee-list');if(!dl)return;dl.innerHTML=(DB.manualPayees||[]).slice().sort((a,b)=>(a.name||'').localeCompare(b.name||'','he')).map(p=>'<option value="'+escH(p.name)+'">'+(p.bankName?escH('בנק '+p.bankName+(p.account?' / '+p.account:'')):'')+'</option>').join('');}
+function onMpyNameChange(){const nm=(document.getElementById('mpy-name').value||'').trim().toLowerCase();if(!nm)return;const p=(DB.manualPayees||[]).find(x=>(x.name||'').trim().toLowerCase()===nm);if(!p)return;const set=(id,val)=>{const el=document.getElementById(id);if(el&&val!=null&&val!=='')el.value=val;};set('mpy-type',p.type);set('mpy-bank-name',p.bankName);set('mpy-branch',p.branch);set('mpy-account',p.account);set('mpy-phone',p.phone);set('mpy-email',p.email);onMpyTypeChange();}
+function saveManualPay(){const name=(document.getElementById('mpy-name').value||'').trim();const type=document.getElementById('mpy-type').value;const amount=parseFloat(document.getElementById('mpy-amount').value)||0;const bankName=(document.getElementById('mpy-bank-name').value||'').trim();const branch=(document.getElementById('mpy-branch').value||'').trim();const account=(document.getElementById('mpy-account').value||'').trim();const phone=(document.getElementById('mpy-phone')?.value||'').trim();const email=(document.getElementById('mpy-email')?.value||'').trim();const note=(document.getElementById('mpy-note').value||'').trim();if(!name){alert('יש להזין שם');return;}if(!amount){alert('יש להזין סכום');return;}const month=document.getElementById('m-month').value;if(!DB.manualPayments)DB.manualPayments=[];DB.manualPayments.push({id:'mpy_'+Date.now(),month,name,type,amount,bankName,branch,account,phone,email,note,status:'pending'});
+  // שמירה/עדכון במאגר מקבלי-התשלום (לפי שם) — לא מוחקים ערך קיים אם השדה נותר ריק
+  if(!DB.manualPayees)DB.manualPayees=[];let payee=DB.manualPayees.find(x=>(x.name||'').trim().toLowerCase()===name.toLowerCase());const det={type,bankName,branch,account,phone,email};if(payee){payee.name=name;Object.keys(det).forEach(k=>{if(det[k])payee[k]=det[k];});}else{DB.manualPayees.push({id:'mpe_'+Date.now(),name,...det});}
+  saveDB();document.getElementById('m-manual-pay-form').style.display='none';['mpy-name','mpy-amount','mpy-bank-name','mpy-branch','mpy-account','mpy-phone','mpy-email','mpy-note'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderMonthly();}
 function updateManualPayStatus(id,val){const p=(DB.manualPayments||[]).find(x=>x.id===id);if(!p)return;p.status=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates['mpy_'+id])DB.payDoneDates['mpy_'+id]=new Date().toISOString().split('T')[0];}saveDB();renderMonthly();}
 function delManualPay(id){if(!confirm('למחוק תשלום זה?'))return;DB.manualPayments=(DB.manualPayments||[]).filter(x=>x.id!==id);saveDB();renderMonthly();}
 function updateAdminTravelDay(staffId,month,day,isOffice){
