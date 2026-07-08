@@ -548,12 +548,15 @@ let _fbSaveTimer = null;
 let _fbListening = false;
 let _fbIgnoreNext = false;
 
+// מטען שמירה מלא ללא codes — הסיסמאות מנוהלות נקודתית ב-saveCode (כתיבת-עלה) ולעולם לא נדרסות ע"י שמירה מלאה מלקוח עם DB ישן
+function _dbSavePayload(){const p=JSON.parse(JSON.stringify(DB));delete p.codes;return p;}
 function saveDB() {
   clearTimeout(_fbSaveTimer);
   _fbIgnoreNext = true; // ignore immediately to prevent listener override during debounce
   _fbSaveTimer = setTimeout(() => {
     try {
-      fbDB.ref(FB_PATH).set(JSON.parse(JSON.stringify(DB)));
+      // update (לא set) — כדי לא למחוק/לדרוס את /codes ומפתחות שלא במטען
+      fbDB.ref(FB_PATH).update(_dbSavePayload());
     }
     catch(e) { console.error('Firebase save:', e); _fbIgnoreNext = false; }
   }, 400);
@@ -567,7 +570,7 @@ function flushSaveNow(btn){
   _fbIgnoreNext=true;
   const orig=btn?btn.getAttribute('data-label')||btn.textContent:'💾 שמירה';
   if(btn){btn.disabled=true;btn.textContent='שומר…';btn.style.opacity='0.7';}
-  Promise.resolve(fbDB.ref(FB_PATH).set(JSON.parse(JSON.stringify(DB))))
+  Promise.resolve(fbDB.ref(FB_PATH).update(_dbSavePayload()))
     .then(()=>{
       if(btn){btn.textContent='✓ נשמר בענן';btn.style.opacity='1';btn.style.background='#3B6D11';btn.style.color='#fff';btn.style.borderColor='#3B6D11';
         setTimeout(()=>{btn.disabled=false;btn.textContent=orig;btn.style.background='';btn.style.color='';btn.style.borderColor='';},2200);}
@@ -2647,6 +2650,8 @@ function loadDB() {
   if (loader) loader.style.display = 'flex';
   fbDB.ref(FB_PATH).once('value').then(snap => {
     _applySnapshot(snap.val());
+    // אם צומת codes חסר בענן (DB חדש/שוחזר) — זרע פעם אחת, אחרת saveDB לא יכתוב codes לעולם
+    const _sv=snap.val();if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
     _setLecturerEmails();
     if (loader) loader.style.display = 'none';
     if (currentRole) applyRoleNav(currentRole);
@@ -2783,7 +2788,7 @@ function hasVat(t){return t==='freelance_vat';}
 function typeBadge(t){return{employee:'<span class="badge b-warn">שכיר</span>',freelance_vat:'<span class="badge b-info">מורשה</span>',freelance_exempt:'<span class="badge b-pend">פטור</span>'}[t]||'';}
 
 DB = {
-  codes:{coord_m:'1234',coord_w:'5678',principal:'0000',office:'9999'},
+  codes:{coord_m:'1234',coord_w:'5678',principal:'0000',office:'9999',staff:'2024'},
   lecturers:[{id:'l_itens',name:'איתן אבנט',track:'m',rate:0,ratePriv:0,travel:0,management:10500,type:'employee',bank:''},{id:'l_aviya',name:'אביה גרינברג',track:'m',rate:200,ratePriv:0,travel:0,management:0,type:'employee',bank:''},{id:'l_yonitz',name:'יונתן ניצן',track:'m',rate:200,ratePriv:0,travel:0,management:0,type:'employee',bank:''},{id:'l_naor',name:'נאור כרמי',track:'m',rate:260,ratePriv:0,travel:100,management:0,type:'freelance_vat',bank:''},{id:'l_yonraz',name:'יונתן רזאל',track:'m',rate:240,ratePriv:0,travel:0,management:0,type:'employee',bank:'הבינלאומי 012-324030'},{id:'l_itamar',name:'איתמר רינגל',track:'m',rate:260,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_omri',name:'עומרי מור',track:'m',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:'הפועלים 12-782-167820'},{id:'l_aharon',name:'אהרון רזאל',track:'m',rate:480,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_yoav',name:'יואב שרגאי',track:'m',rate:200,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_shmul',name:'שמוליק ישורון',track:'m',rate:220,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_aviet',name:'אביתר לוין',track:'m',rate:200,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_david',name:'דוד עדה',track:'m',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_yftah',name:'יפתח דקל',track:'m',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_keren',name:'קרן גולן',track:'w',rate:270,ratePriv:0,travel:0,management:3000,type:'freelance_exempt',bank:''},{id:'l_michal',name:'מיכל עמר',track:'w',rate:240,ratePriv:150,travel:0,management:4000,type:'employee',bank:''},{id:'l_noa',name:'נועה שמר',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'employee',bank:''},{id:'l_tal',name:'טל אברמוביץ',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_rika',name:'ריקה רזאל',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_hadasa',name:'הדסה דניאלס',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'employee',bank:''},{id:'l_edna',name:'עדנה גיאת',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_maya_p',name:'מיה פוליצר',track:'w',rate:270,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_maya_h',name:'מיה הרטמן',track:'w',rate:270,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_tudia',name:'תודיה שנדוביץ',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_rivka',name:'רבקה רביבו',track:'w',rate:250,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_hadas_d',name:'הדס דגול שמרלינג',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_hani',name:'חני ביטרן',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_ruth',name:'רות חמאווי',track:'w',rate:200,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_orfaz',name:'אורפז הריסון',track:'w',rate:200,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_shira',name:'שירה גל הרסט',track:'w',rate:240,ratePriv:0,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_natan_n',name:'נתניאל נזרי',track:'m',rate:100,ratePriv:100,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_natan_r',name:'נתן רוצה',track:'m',rate:100,ratePriv:100,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_shimon',name:'שמעון חנון',track:'m',rate:100,ratePriv:100,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_yohanan',name:'יוחנן פרץ',track:'m',rate:100,ratePriv:100,travel:0,management:0,type:'freelance_vat',bank:''},{id:'l_hadar',name:'הדר אשל',track:'w',rate:150,ratePriv:150,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_sivan',name:'סיון בן נון',track:'w',rate:150,ratePriv:150,travel:0,management:0,type:'freelance_exempt',bank:''},{id:'l_miriam',name:'מרים אלי',track:'w',rate:150,ratePriv:150,travel:0,management:0,type:'freelance_vat',bank:''}],
   students:[
     {id:'s1',name:'אריאל כהן',instrument:'פסנתר',totalQuota:16,usedOverride:null},
@@ -4059,6 +4064,16 @@ function renderMonthly(){const month=document.getElementById('m-month')?.value;i
   const lids=[...rawLids.filter(id=>{const l=getLect(id);return l&&l.type==='employee';}),...rawLids.filter(id=>{const l=getLect(id);return l&&l.type!=='employee';})];
   const container=document.getElementById('m-rows');
   container.innerHTML='';
+  // אזהרה: ימי לימוד שלא אושרו אינם נכללים בסיכום/בתשלום (למשל כל ימי הנשים ממתינים → נראה רק גברים)
+  const _pendDays=DB.days.filter(d=>d.date.startsWith(month)&&d.dayApproval!=='approved');
+  if(_pendDays.length){
+    const _byT={};_pendDays.forEach(d=>{const t={m:'גברים',w:'נשים'}[d.track]||d.track;_byT[t]=(_byT[t]||0)+1;});
+    const _parts=Object.entries(_byT).map(([t,n])=>n+' '+t).join(' · ');
+    const warn=document.createElement('div');
+    warn.style.cssText='margin-bottom:10px;padding:9px 13px;background:rgba(250,238,218,0.6);border:0.5px solid #E6A23C;border-right:3px solid #D4860A;border-radius:var(--border-radius-md);font-size:12px;color:#854F0B';
+    warn.innerHTML='⚠️ <strong>'+_pendDays.length+' ימי לימוד בחודש זה טרם אושרו</strong> ('+_parts+') — המרצים שלהם לא ייכללו בסיכום/בתשלום עד אישורם ב"אישור ימי לימודים".';
+    container.appendChild(warn);
+  }
   let _seenFreelancer=false;
   lids.forEach(lid=>{
     const calc=calcLect(lid,month);const _ov=(DB.payOverrides||{})[month+'_'+lid]||{};if(!calc||(calc.total===0&&!Object.keys(_ov).length))return;
