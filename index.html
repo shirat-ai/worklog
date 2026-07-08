@@ -468,6 +468,15 @@ tr.drag-over td{border-top:2px solid #10717E}
               <label class="btn btn-sm" style="cursor:pointer">⬆ ייבוא גיבוי<input type="file" accept=".json" style="display:none" onchange="importBackup(this)"></label>
             </div>
             <div id="backup-msg" style="font-size:11px;color:#3B6D11;display:none"></div>
+            <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:6px;padding-top:8px">
+              <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:5px">📧 <b>גיבוי + דוח שבועי אוטומטי במייל</b> — נשלח פעם בשבוע בכניסת מנהל/משרד (גיבוי מלא לשחזור + בקרה חודשית + דוח פעילות).</p>
+              <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
+                <input id="backup-email" type="email" placeholder="david@shirat.net" style="font-size:12px;padding:4px 8px;border:0.5px solid var(--color-border-secondary);border-radius:6px;width:190px">
+                <button class="btn btn-sm btn-g" onclick="saveBackupEmail()">שמור נמען</button>
+                <button class="btn btn-sm" onclick="sendWeeklyBackup(true,false)">📧 שלח עכשיו</button>
+              </div>
+              <div id="backup-last" style="font-size:11px;color:var(--color-text-tertiary);margin-top:4px"></div>
+            </div>
           </div>
         </div>
         <div class="card"><div class="ct">ייבוא חכם (AI) — מפתח API</div>
@@ -597,7 +606,7 @@ function _rerenderCurrentPage(){
   }catch(e){console.error('rerender:',e);}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260709;
+const APP_VERSION = 20260710;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -2721,7 +2730,7 @@ function _applySnapshot(p) {
   if (typeof p._rev === 'number') _serverRev = p._rev; // עדכון מונה-הגרסה ממצב-השרת
 
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees','lastWeeklyBackup','backupEmail']
     .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
@@ -2925,7 +2934,7 @@ function importBankDataFromSheet(){
 function setBankField(i,field,val){if(typeof DB.lecturers[i].bank!=='object')DB.lecturers[i].bank=parseBankStr(DB.lecturers[i].bank);DB.lecturers[i].bank[field]=val;saveDB();}
 function downloadCSV(rows,filename){const bom='\uFEFF';const csv=bom+rows.map(r=>r.map(c=>{const s=String(c||'');return s.includes(',')||s.includes('"')||s.includes('\n')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function switchSTab(tab){['lect','priv','sched','extra','admin'].forEach(t=>{const p=document.getElementById(t+'-panel');if(p)p.style.display=t===tab?'block':'none';const b=document.getElementById('stab-'+t);if(b)b.classList.toggle('act',t===tab);});if(tab==='sched')renderSchedEditor();if(tab==='admin')renderAdminStaff();}
-function renderSettings(keepTab){if(!keepTab)switchSTab('lect');renderAdminStaff();['m','w'].forEach(t=>{const el=document.getElementById('quota-rows-'+t);if(!el)return;const qs2=(DB.groups[t]||[]);el.innerHTML='';qs2.forEach(function(grpName,i){
+function renderSettings(keepTab){if(!keepTab)switchSTab('lect');renderAdminStaff();_initBackupUI();['m','w'].forEach(t=>{const el=document.getElementById('quota-rows-'+t);if(!el)return;const qs2=(DB.groups[t]||[]);el.innerHTML='';qs2.forEach(function(grpName,i){
       var q=(DB.quotas[t]||[]).find(function(x){return x.year===grpName;});
       var manual=q&&q.quota>0?q.quota:'';
       var tr=document.createElement('tr');
@@ -3404,7 +3413,7 @@ function exportMiscExcel(month){
 // ══════════════════════════════════════════════
 // ייצוא בקרה חודשית — 6 לשוניות
 // ══════════════════════════════════════════════
-function exportMonthlyControlExcel(month){
+function exportMonthlyControlExcel(month,returnXml){
   if(!month){month=document.getElementById('m-month')?.value;if(!month){alert('בחר חודש');return;}}
   const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   const DOW=['ראשון','שני','שלישי','רביעי','חמישי','שישי','שבת'];
@@ -3592,11 +3601,84 @@ function exportMonthlyControlExcel(month){
 </Styles>`;
 
   const xml=`<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${styles}${buildTrack('m','גברים')}${buildTrack('w','נשים')}${buildSummary()}${buildMisc()}${buildDailyCtrl()}${buildPayStatus()}</Workbook>`;
+  if(returnXml)return xml;
   const blob=new Blob(['﻿'+xml],{type:'application/vnd.ms-excel;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`בקרה_חודשית_${month}.xls`;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 
+// ══════════════════════════════════════════════
+// גיבוי + דוח שבועי אוטומטי במייל (רץ בכניסת מנהל/משרד, פעם בשבוע)
+// ══════════════════════════════════════════════
+const BACKUP_EMAIL_DEFAULT='david@shirat.net';
+function _gzipB64(str){
+  if(typeof CompressionStream==='undefined')return Promise.resolve(null);
+  try{
+    const cs=new CompressionStream('gzip');
+    return new Response(new Blob([str]).stream().pipeThrough(cs)).arrayBuffer().then(buf=>{
+      let bin='';const b=new Uint8Array(buf);const ch=0x8000;
+      for(let i=0;i<b.length;i+=ch)bin+=String.fromCharCode.apply(null,b.subarray(i,i+ch));
+      return btoa(bin);
+    }).catch(()=>null);
+  }catch(e){return Promise.resolve(null);}
+}
+function _b64utf8(str){try{return btoa(unescape(encodeURIComponent(str)));}catch(e){return '';}}
+function _weeklyReportHtml(month){
+  const HEB=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
+  const md=new Date(month+'-01');const ML=HEB[md.getMonth()]+' '+md.getFullYear();
+  const fmtN=n=>Math.round(n||0).toLocaleString('he-IL');
+  function trackRows(track){
+    const days=(DB.days||[]).filter(d=>d.date.startsWith(month)&&d.dayApproval==='approved'&&d.track===track);
+    const lids=new Set();days.forEach(d=>(d.groups||[]).forEach(g=>g.rows.forEach(r=>{if(r.lectId)lids.add(r.lectId);})));
+    (DB.privateLessons||[]).filter(pl=>pl.date.startsWith(month)&&pl.privApproval==='approved').forEach(pl=>{const l=getLect(pl.lectId);if(l&&l.track===track)lids.add(pl.lectId);});
+    let rows='',tot=0,hrs=0;
+    [...lids].map(id=>getLect(id)).filter(Boolean).sort((a,b)=>(a.name||'').localeCompare(b.name||'','he')).forEach(l=>{
+      const c=calcLect(l.id,month);if(!c)return;const ch=(c.hrs||0)+(c.privHrs||0);tot+=c.total;hrs+=ch;
+      rows+='<tr><td style="padding:3px 8px;border:1px solid #eee">'+escH(l.name)+'</td><td style="padding:3px 8px;border:1px solid #eee;text-align:center">'+(+ch.toFixed(2))+'</td><td style="padding:3px 8px;border:1px solid #eee;text-align:left">₪'+fmtN(c.total)+'</td></tr>';
+    });
+    return {rows,tot,hrs};
+  }
+  const m=trackRows('m'),w=trackRows('w');
+  let admRows='',admTot=0;getAdminMonthlyRows(month).forEach(r=>{admTot+=r.total;admRows+='<tr><td style="padding:3px 8px;border:1px solid #eee">'+escH(r.name)+'</td><td style="padding:3px 8px;border:1px solid #eee;text-align:center">'+r.hrs+'</td><td style="padding:3px 8px;border:1px solid #eee;text-align:left">₪'+fmtN(r.total)+'</td></tr>';});
+  const privM=(DB.privateLessons||[]).filter(p=>p.date.startsWith(month));
+  const weekAgo=Date.now()-7*24*3600*1000;
+  const recent=(DB.activityLog||[]).filter(e=>new Date(e.ts).getTime()>=weekAgo);
+  const actCount={};recent.forEach(e=>{actCount[e.action]=(actCount[e.action]||0)+1;});
+  const tbl=(title,rows,tot,hrs)=>'<h3 style="margin:14px 0 4px;color:#10717E">'+title+'</h3><table style="border-collapse:collapse;font-size:13px;width:100%"><tr style="background:#f3f3f3"><th style="padding:4px 8px;border:1px solid #eee;text-align:right">שם</th><th style="padding:4px 8px;border:1px solid #eee">ש"ה</th><th style="padding:4px 8px;border:1px solid #eee">לתשלום</th></tr>'+(rows||'<tr><td colspan="3" style="padding:6px;color:#999">אין</td></tr>')+'<tr style="font-weight:700;background:#eaf3ef"><td style="padding:4px 8px;border:1px solid #eee">סה"כ</td><td style="padding:4px 8px;border:1px solid #eee;text-align:center">'+(hrs!=null?(+hrs.toFixed(2)):'')+'</td><td style="padding:4px 8px;border:1px solid #eee;text-align:left">₪'+fmtN(tot)+'</td></tr></table>';
+  return '<div style="font-family:Arial,sans-serif;direction:rtl;max-width:660px;margin:auto;color:#333">'
+    +'<h2 style="color:#10717E">שירת הלויים — גיבוי ודוח שבועי</h2>'
+    +'<p style="color:#666">חודש נוכחי: <b>'+ML+'</b> · הופק: '+new Date().toLocaleString('he-IL')+'</p>'
+    +'<div style="background:#eaf3ef;padding:10px 14px;border-radius:8px;margin:10px 0"><b>סה"כ לתשלום החודש:</b> ₪'+fmtN(m.tot+w.tot+admTot)+' · שיעורי כלי החודש: '+privM.length+'</div>'
+    +tbl('מסלול גברים',m.rows,m.tot,m.hrs)+tbl('מסלול נשים',w.rows,w.tot,w.hrs)+tbl('צוות מנהלי',admRows,admTot,null)
+    +'<h3 style="margin:14px 0 4px;color:#10717E">פעילות בשבוע האחרון ('+recent.length+' פעולות)</h3>'
+    +'<ul style="font-size:13px">'+(Object.entries(actCount).map(([a,n])=>'<li>'+escH(a)+': '+n+'</li>').join('')||'<li>אין פעילות</li>')+'</ul>'
+    +'<p style="font-size:12px;color:#999;border-top:1px solid #eee;padding-top:8px;margin-top:14px">מצורפים: קובץ גיבוי מלא (לשחזור: הגדרות → ייבוא גיבוי) + קובץ בקרה חודשי (Excel). שמור/י מייל זה — זהו גיבוי הנתונים השבועי.</p></div>';
+}
+function sendWeeklyBackup(force,silent){
+  if(!EMAILJS_READY()){ if(!silent)alert('EmailJS לא מוגדר — לא ניתן לשלוח גיבוי'); return; }
+  const now=Date.now();
+  const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup).getTime():0;
+  if(!force && (now-last)<7*24*3600*1000) return; // טרם עבר שבוע — לא שולחים
+  const to=DB.backupEmail||BACKUP_EMAIL_DEFAULT;
+  const nowD=new Date();const month=nowD.getFullYear()+'-'+String(nowD.getMonth()+1).padStart(2,'0');
+  const backupJson=JSON.stringify({version:'v5',exported:new Date().toISOString(),DB:DB});
+  let controlXml='';try{controlXml=exportMonthlyControlExcel(month,true)||'';}catch(e){}
+  const reportHtml=_weeklyReportHtml(month);
+  const base={to_name:'דוד',to_email:to,email:to,description:'גיבוי ודוח פעילות שבועי — '+nowD.toLocaleDateString('he-IL'),amount:'',receipt_type:'',message_html:reportHtml};
+  emailjs.init(EMAILJS_PRIVATE_KEY?{publicKey:EMAILJS_PUBLIC_KEY,privateKey:EMAILJS_PRIVATE_KEY}:{publicKey:EMAILJS_PUBLIC_KEY});
+  Promise.resolve(_gzipB64(backupJson)).then(gz=>{
+    const backupContent=gz||_b64utf8(backupJson);
+    const ctrlContent=_b64utf8(controlXml);
+    const withAtt=Object.assign({},base,{backup_name:'shirat_backup_'+month+(gz?'.json.gz':'.json'),backup_content:backupContent,control_name:'בקרה_'+month+'.xls',control_content:ctrlContent});
+    // נסיון עם צירופים; אם נכשל (בד"כ מגבלת-גודל/הגדרת-תבנית) — שולחים לפחות את הדוח
+    return emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,withAtt)
+      .catch(()=>emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,base).then(()=>'report-only'));
+  }).then(res=>{
+    DB.lastWeeklyBackup=new Date().toISOString();saveDB();
+    logAction('גיבוי+דוח שבועי נשלח',to+(res==='report-only'?' (דוח בלבד — צירופים דורשים הגדרת תבנית EmailJS)':''));
+    if(!silent)alert('✓ נשלח ל-'+to+(res==='report-only'?'\n(הדוח נשלח; לצירוף קבצים דרושה הגדרת התבנית ב-EmailJS — ראה הודעתי)':''));
+  }).catch(e=>{console.error('weekly backup send:',e);if(!silent)alert('שגיאה בשליחת הגיבוי: '+(e.text||e.message||e));});
+}
 function _downloadXls(data,filename){
   let xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="פירוט"><Table>';
   // עמודות: שם המוטב(150) | בנק(60) | מספר סניף(70) | מספר חשבון(110) | מהות העברה(150) | סכום ₪(80)
@@ -3833,7 +3915,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal')setTimeout(_promptPaymentReminders,1000);}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{sendWeeklyBackup(false,true);}catch(e){console.error('weekly backup:',e);}},4000);}}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
@@ -4436,6 +4518,8 @@ function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.paySta
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${l.name},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
 
 function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
+function saveBackupEmail(){const v=(document.getElementById('backup-email').value||'').trim();if(v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){alert('כתובת מייל לא תקינה');return;}DB.backupEmail=v||BACKUP_EMAIL_DEFAULT;saveDB();_initBackupUI();alert('נמען הגיבוי עודכן: '+DB.backupEmail);}
+function _initBackupUI(){const e=document.getElementById('backup-email');if(e)e.value=DB.backupEmail||BACKUP_EMAIL_DEFAULT;const l=document.getElementById('backup-last');if(l)l.textContent=DB.lastWeeklyBackup?('גיבוי אחרון נשלח: '+new Date(DB.lastWeeklyBackup).toLocaleString('he-IL')):'טרם נשלח גיבוי שבועי';}
 function saveAnthropicKey(){const inp=document.getElementById('anthropic-key-input');const val=(inp.value||'').trim();if(!val.startsWith('sk-ant-')){alert('מפתח לא תקין — צריך להתחיל ב-sk-ant-');return;}localStorage.setItem('_ak',val);inp.value='';const st=document.getElementById('anthropic-key-status');if(st){st.textContent='✓ מפתח נשמר';st.style.color='#3B6D11';}}
 function getAnthropicKey(){return localStorage.getItem('_ak')||'';}
 function addLecturer(){const n=document.getElementById('nl-n').value.trim();if(!n)return;DB.lecturers.push({id:'l'+Date.now(),name:n,track:document.getElementById('nl-t').value,rate:parseInt(document.getElementById('nl-r').value)||0,ratePriv:parseInt(document.getElementById('nl-rp').value)||0,travel:parseInt(document.getElementById('nl-tr').value)||0,management:parseInt(document.getElementById('nl-mg').value)||0,type:document.getElementById('nl-type').value,bank:document.getElementById('nl-bank').value,email:(document.getElementById('nl-email')?.value||'').trim(),phone:(document.getElementById('nl-phone')?.value||'').trim()});saveDB();renderSettings();['nl-n','nl-r','nl-rp','nl-tr','nl-mg','nl-bank','nl-email','nl-phone'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});}
