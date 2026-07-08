@@ -552,6 +552,9 @@ const EMAILJS_PUBLIC_KEY  = 'PxiaNGSWQMDKE75IX';
 const EMAILJS_PRIVATE_KEY = '';  // אם Strict Mode פעיל — הכנס כאן Private Key מ-emailjs.com → Account → API Keys
 const EMAILJS_SERVICE_ID  = 'service_vey7uqo';
 const EMAILJS_TEMPLATE_ID = 'template_slt51dm';
+// תבנית ייעודית לגיבוי+דוח השבועי (מרנדרת {{message_html}} כגוף מלא + 2 צירופים).
+// עד שדוד יוצר אותה ב-EmailJS וממלא כאן את ה-ID — השליחה האוטומטית מושבתת (לא נשלחים מיילים שגויים).
+const EMAILJS_BACKUP_TEMPLATE_ID = '';
 const EMAILJS_READY = ()=>typeof emailjs!=='undefined'&&EMAILJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY';
 let _fbSaveTimer = null;
 let _fbListening = false;
@@ -606,7 +609,7 @@ function _rerenderCurrentPage(){
   }catch(e){console.error('rerender:',e);}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260711;
+const APP_VERSION = 20260712;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -3656,6 +3659,7 @@ function _weeklyReportHtml(month){
 }
 function sendWeeklyBackup(force,silent){
   if(!EMAILJS_READY()){ if(!silent)alert('EmailJS לא מוגדר — לא ניתן לשלוח גיבוי'); return; }
+  if(!EMAILJS_BACKUP_TEMPLATE_ID){ if(!silent)alert('תבנית הגיבוי ב-EmailJS טרם הוגדרה.\nהשליחה מושבתת עד להגדרתה (ראה הוראות). כך לא נשלחים מיילים שגויים.'); return; }
   const now=Date.now();
   const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup).getTime():0;
   if(!force && (now-last)<7*24*3600*1000) return; // טרם עבר שבוע — לא שולחים
@@ -3664,15 +3668,15 @@ function sendWeeklyBackup(force,silent){
   const backupJson=JSON.stringify({version:'v5',exported:new Date().toISOString(),DB:DB});
   let controlXml='';try{controlXml=exportMonthlyControlExcel(month,true)||'';}catch(e){}
   const reportHtml=_weeklyReportHtml(month);
-  const base={to_name:'דוד',to_email:to,email:to,description:'גיבוי ודוח פעילות שבועי — '+nowD.toLocaleDateString('he-IL'),amount:'',receipt_type:'',message_html:reportHtml};
+  const base={to_name:'דוד',to_email:to,email:to,subject:'גיבוי + דוח שבועי — שירת הלויים ('+nowD.toLocaleDateString('he-IL')+')',description:'גיבוי ודוח פעילות שבועי',message_html:reportHtml};
   emailjs.init(EMAILJS_PRIVATE_KEY?{publicKey:EMAILJS_PUBLIC_KEY,privateKey:EMAILJS_PRIVATE_KEY}:{publicKey:EMAILJS_PUBLIC_KEY});
   Promise.resolve(_gzipB64(backupJson)).then(gz=>{
     const backupContent=gz||_b64utf8(backupJson);
     const ctrlContent=_b64utf8(controlXml);
     const withAtt=Object.assign({},base,{backup_name:'shirat_backup_'+month+(gz?'.json.gz':'.json'),backup_content:backupContent,control_name:'בקרה_'+month+'.xls',control_content:ctrlContent});
     // נסיון עם צירופים; אם נכשל (בד"כ מגבלת-גודל/הגדרת-תבנית) — שולחים לפחות את הדוח
-    return emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,withAtt)
-      .catch(()=>emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_TEMPLATE_ID,base).then(()=>'report-only'));
+    return emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_BACKUP_TEMPLATE_ID,withAtt)
+      .catch(()=>emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_BACKUP_TEMPLATE_ID,base).then(()=>'report-only'));
   }).then(res=>{
     DB.lastWeeklyBackup=new Date().toISOString();saveDB();
     logAction('גיבוי+דוח שבועי נשלח',to+(res==='report-only'?' (דוח בלבד — צירופים דורשים הגדרת תבנית EmailJS)':''));
