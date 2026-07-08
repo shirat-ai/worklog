@@ -547,16 +547,28 @@ const EMAILJS_READY = ()=>typeof emailjs!=='undefined'&&EMAILJS_PUBLIC_KEY!=='YO
 let _fbSaveTimer = null;
 let _fbListening = false;
 let _fbIgnoreNext = false;
-
-// מטען שמירה מלא ללא codes — הסיסמאות מנוהלות נקודתית ב-saveCode (כתיבת-עלה) ולעולם לא נדרסות ע"י שמירה מלאה מלקוח עם DB ישן
-function _dbSavePayload(){const p=JSON.parse(JSON.stringify(DB));delete p.codes;return p;}
+// צל של מצב-השרת הידוע (JSON פר-מפתח-עליון). שמירה כותבת רק מפתחות ש**המכשיר הזה** שינה
+// מאז הסנכרון האחרון — כדי שפעולה על אוסף אחד (תשלום/תזכורת) לא תדרוס אוסף אחר (ימים/אישורים)
+// שמכשיר ישן לא ראה. codes אף פעם לא נכתב בשמירה מלאה (רק ב-saveCode).
+let _dbShadow = {};
+function _snapshotShadow(){ _dbShadow = {}; Object.keys(DB).forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} }); }
+function _computeDirtyPayload(){
+  const payload={};
+  Object.keys(DB).forEach(k=>{
+    if(k==='codes')return;
+    let s; try{ s=JSON.stringify(DB[k]); }catch(e){ return; }
+    if(_dbShadow[k]!==s){ payload[k]=JSON.parse(s); _dbShadow[k]=s; }
+  });
+  return payload;
+}
 function saveDB() {
   clearTimeout(_fbSaveTimer);
   _fbIgnoreNext = true; // ignore immediately to prevent listener override during debounce
   _fbSaveTimer = setTimeout(() => {
     try {
-      // update (לא set) — כדי לא למחוק/לדרוס את /codes ומפתחות שלא במטען
-      fbDB.ref(FB_PATH).update(_dbSavePayload());
+      const payload=_computeDirtyPayload();
+      if(Object.keys(payload).length) fbDB.ref(FB_PATH).update(payload);
+      else _fbIgnoreNext=false; // אין שינוי — לא כותבים
     }
     catch(e) { console.error('Firebase save:', e); _fbIgnoreNext = false; }
   }, 400);
@@ -570,7 +582,8 @@ function flushSaveNow(btn){
   _fbIgnoreNext=true;
   const orig=btn?btn.getAttribute('data-label')||btn.textContent:'💾 שמירה';
   if(btn){btn.disabled=true;btn.textContent='שומר…';btn.style.opacity='0.7';}
-  Promise.resolve(fbDB.ref(FB_PATH).update(_dbSavePayload()))
+  const _p=_computeDirtyPayload();
+  Promise.resolve(Object.keys(_p).length?fbDB.ref(FB_PATH).update(_p):Promise.resolve())
     .then(()=>{
       if(btn){btn.textContent='✓ נשמר בענן';btn.style.opacity='1';btn.style.background='#3B6D11';btn.style.color='#fff';btn.style.borderColor='#3B6D11';
         setTimeout(()=>{btn.disabled=false;btn.textContent=orig;btn.style.background='';btn.style.color='';btn.style.borderColor='';},2200);}
@@ -2689,6 +2702,7 @@ function _applySnapshot(p) {
       if (!DB.quotas[t].find(q => q.year === grp)) DB.quotas[t].push({year:grp,quota:0});
     });
   });
+  _snapshotShadow(); // הצל = מצב-השרת שזה עתה נטען/סונכרן → שמירות עתידיות כותבות רק דלתא מקומית
 }
 
 function _setLecturerEmails() {
