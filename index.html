@@ -551,19 +551,53 @@ let _fbIgnoreNext = false;
 // מאז הסנכרון האחרון — כדי שפעולה על אוסף אחד (תשלום/תזכורת) לא תדרוס אוסף אחר (ימים/אישורים)
 // שמכשיר ישן לא ראה. codes אף פעם לא נכתב בשמירה מלאה (רק ב-saveCode).
 let _dbShadow = {};
+// _rev = מונה-גרסה מונוטוני של ה-DB. כל כתיבת-שורש מגדילה אותו ב-1. חוק Firebase (בשרת)
+// דוחה כל כתיבה שאינה _rev+1 → מכשיר לא-מעודכן/מיושן פשוט לא יכול לדרוס נתונים. עצמאי מרענון.
+let _serverRev = 0;
 function _snapshotShadow(){ _dbShadow = {}; Object.keys(DB).forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} }); }
-function _computeDirtyPayload(){
-  const payload={};
+function _computeDirty(){
+  const payload={}, keys=[];
   Object.keys(DB).forEach(k=>{
-    if(k==='codes')return;
+    if(k==='codes'||k==='_rev')return;
     let s; try{ s=JSON.stringify(DB[k]); }catch(e){ return; }
-    if(_dbShadow[k]!==s){ payload[k]=JSON.parse(s); _dbShadow[k]=s; }
+    if(_dbShadow[k]!==s){ payload[k]=JSON.parse(s); keys.push(k); }
   });
-  return payload;
+  return {payload,keys};
 }
-// גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה —
-// כדי שמכשיר ישן לא ימשיך לכתוב DB מלא (ולדרוס נתונים) אחרי שתיקון נפרס. bump בכל deploy.
-const APP_VERSION = 20260708;
+function _pushDirty(){
+  const {payload,keys}=_computeDirty();
+  if(!keys.length){ _fbIgnoreNext=false; return Promise.resolve(); }
+  const rev=(_serverRev||0)+1; payload._rev=rev;
+  return fbDB.ref(FB_PATH).update(payload).then(()=>{
+    keys.forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} });
+    _serverRev=rev;
+  }).catch(err=>{ _fbIgnoreNext=false; _onWriteRejected(err); throw err; });
+}
+let _writeRejectNoticeAt=0;
+function _onWriteRejected(err){
+  const info=((err&&err.code)||'')+' '+((err&&err.message)||'');
+  console.warn('Firebase write rejected — re-syncing:', info);
+  if(!/permission|denied/i.test(info))return; // רשת זמנית → תור אוטומטי; רק דחיית-הרשאה = כתיבה מיושנת
+  fbDB.ref(FB_PATH).once('value').then(s=>{ _applySnapshot(s.val()); _rerenderCurrentPage(); }).catch(()=>{});
+  const now=Date.now();
+  if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('⚠️ הנתונים עודכנו ממכשיר אחר והמסך רוענן.\nאם ביצעת שינוי כרגע — ודא/י שנקלט, וחזור/י עליו אם צריך.'); }catch(e){} }
+}
+function _rerenderCurrentPage(){
+  if(!currentRole)return;
+  try{
+    const pg=document.querySelector('.pg.act');const id=pg?pg.id.replace('pg-',''):'';
+    if(id==='dash'){buildMonthCheckboxes();renderDash();}
+    else if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}
+    else if(id==='payments'){buildAllMonthDropdowns();renderPayments();}
+    else if(id==='approval')renderApproval();
+    else if(id==='private')renderPrivate();
+    else if(id==='admin')renderAdminHours();
+    else if(id==='staffrep')renderStaffReport();
+    else if(id==='gantt')renderGantt();
+  }catch(e){console.error('rerender:',e);}
+}
+// גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
+const APP_VERSION = 20260709;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -573,11 +607,7 @@ function saveDB() {
   clearTimeout(_fbSaveTimer);
   _fbIgnoreNext = true; // ignore immediately to prevent listener override during debounce
   _fbSaveTimer = setTimeout(() => {
-    try {
-      const payload=_computeDirtyPayload();
-      if(Object.keys(payload).length) fbDB.ref(FB_PATH).update(payload);
-      else _fbIgnoreNext=false; // אין שינוי — לא כותבים
-    }
+    try { _pushDirty(); }
     catch(e) { console.error('Firebase save:', e); _fbIgnoreNext = false; }
   }, 400);
 }
@@ -590,8 +620,7 @@ function flushSaveNow(btn){
   _fbIgnoreNext=true;
   const orig=btn?btn.getAttribute('data-label')||btn.textContent:'💾 שמירה';
   if(btn){btn.disabled=true;btn.textContent='שומר…';btn.style.opacity='0.7';}
-  const _p=_computeDirtyPayload();
-  Promise.resolve(Object.keys(_p).length?fbDB.ref(FB_PATH).update(_p):Promise.resolve())
+  Promise.resolve(_pushDirty())
     .then(()=>{
       if(btn){btn.textContent='✓ נשמר בענן';btn.style.opacity='1';btn.style.background='#3B6D11';btn.style.color='#fff';btn.style.borderColor='#3B6D11';
         setTimeout(()=>{btn.disabled=false;btn.textContent=orig;btn.style.background='';btn.style.color='';btn.style.borderColor='';},2200);}
@@ -600,7 +629,7 @@ function flushSaveNow(btn){
     .catch(e=>{
       console.error('flush save:',e);_fbIgnoreNext=false;
       if(btn){btn.disabled=false;btn.textContent='✗ נסה שוב';btn.style.opacity='1';btn.style.background='#A32D2D';btn.style.color='#fff';btn.style.borderColor='#A32D2D';}
-      alert('השמירה לא הושלמה — ייתכן חיבור אינטרנט חלש.\nהנתונים עדיין מוצגים על המסך, נסה/י שוב.');
+      // _onWriteRejected כבר טיפל בדחיית-הרשאה (רענון); הודעה זו לשגיאות אחרות
     });
 }
 
@@ -2689,6 +2718,8 @@ function loadDB() {
 
 function _applySnapshot(p) {
   if (!p) return;
+  if (typeof p._rev === 'number') _serverRev = p._rev; // עדכון מונה-הגרסה ממצב-השרת
+
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
    'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees']
     .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
