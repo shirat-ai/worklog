@@ -610,7 +610,7 @@ function _rerenderCurrentPage(){
   }catch(e){console.error('rerender:',e);}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260714;
+const APP_VERSION = 20260715;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -2734,7 +2734,7 @@ function _applySnapshot(p) {
   if (typeof p._rev === 'number') _serverRev = p._rev; // עדכון מונה-הגרסה ממצב-השרת
 
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
-   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees','lastWeeklyBackup','backupEmail']
+   'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees','lastWeeklyBackup','backupEmail','integrations']
     .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
