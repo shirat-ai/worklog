@@ -561,6 +561,14 @@ function _computeDirtyPayload(){
   });
   return payload;
 }
+// גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה —
+// כדי שמכשיר ישן לא ימשיך לכתוב DB מלא (ולדרוס נתונים) אחרי שתיקון נפרס. bump בכל deploy.
+const APP_VERSION = 20260708;
+function _checkAppVersion(remote){
+  const v=parseInt(remote)||0;
+  if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
+  if(v<APP_VERSION){ try{ fbDB.ref(FB_PATH+'/appVersion').set(APP_VERSION); }catch(e){} }
+}
 function saveDB() {
   clearTimeout(_fbSaveTimer);
   _fbIgnoreNext = true; // ignore immediately to prevent listener override during debounce
@@ -2665,6 +2673,8 @@ function loadDB() {
     _applySnapshot(snap.val());
     // אם צומת codes חסר בענן (DB חדש/שוחזר) — זרע פעם אחת, אחרת saveDB לא יכתוב codes לעולם
     const _sv=snap.val();if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
+    _checkAppVersion(_sv&&_sv.appVersion);
+    fbDB.ref(FB_PATH+'/appVersion').on('value',s=>_checkAppVersion(s.val())); // טאב ישן → טעינה מחדש אוטומטית
     _setLecturerEmails();
     if (loader) loader.style.display = 'none';
     if (currentRole) applyRoleNav(currentRole);
