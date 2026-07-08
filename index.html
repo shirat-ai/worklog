@@ -555,7 +555,7 @@ const EMAILJS_SERVICE_ID  = 'service_vey7uqo';
 const EMAILJS_TEMPLATE_ID = 'template_slt51dm';
 // תבנית ייעודית לגיבוי+דוח השבועי (מרנדרת {{message_html}} כגוף מלא + 2 צירופים).
 // עד שדוד יוצר אותה ב-EmailJS וממלא כאן את ה-ID — השליחה האוטומטית מושבתת (לא נשלחים מיילים שגויים).
-const EMAILJS_BACKUP_TEMPLATE_ID = '';
+const EMAILJS_BACKUP_TEMPLATE_ID = 'template_vaa8cpl';
 const EMAILJS_READY = ()=>typeof emailjs!=='undefined'&&EMAILJS_PUBLIC_KEY!=='YOUR_PUBLIC_KEY';
 let _fbSaveTimer = null;
 let _fbListening = false;
@@ -610,7 +610,7 @@ function _rerenderCurrentPage(){
   }catch(e){console.error('rerender:',e);}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260713;
+const APP_VERSION = 20260714;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
