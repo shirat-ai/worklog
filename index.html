@@ -469,11 +469,12 @@ tr.drag-over td{border-top:2px solid #10717E}
             </div>
             <div id="backup-msg" style="font-size:11px;color:#3B6D11;display:none"></div>
             <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:6px;padding-top:8px">
-              <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:5px">📧 <b>גיבוי + דוח שבועי אוטומטי במייל</b> — נשלח פעם בשבוע בכניסת מנהל/משרד (גיבוי מלא לשחזור + בקרה חודשית + דוח פעילות).</p>
+              <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:5px">🛡️ <b>גיבוי שבועי</b> — פעם בשבוע בכניסת מנהל/משרד תופיע תזכורת. לחיצה מורידה קובץ גיבוי (לשחזור) + בקרה חודשית, ושולחת דוח פעילות למייל.</p>
               <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
                 <input id="backup-email" type="email" placeholder="david@shirat.net" style="font-size:12px;padding:4px 8px;border:0.5px solid var(--color-border-secondary);border-radius:6px;width:190px">
                 <button class="btn btn-sm btn-g" onclick="saveBackupEmail()">שמור נמען</button>
-                <button class="btn btn-sm" onclick="sendWeeklyBackup(true,false)">📧 שלח עכשיו</button>
+                <button class="btn btn-sm" onclick="runWeeklyBackup(false)">🛡️ בצע גיבוי עכשיו</button>
+                <button class="btn btn-sm" onclick="sendWeeklyReport(false)">📧 שלח דוח בלבד</button>
               </div>
               <div id="backup-last" style="font-size:11px;color:var(--color-text-tertiary);margin-top:4px"></div>
             </div>
@@ -609,7 +610,7 @@ function _rerenderCurrentPage(){
   }catch(e){console.error('rerender:',e);}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260712;
+const APP_VERSION = 20260713;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -3655,34 +3656,47 @@ function _weeklyReportHtml(month){
     +tbl('מסלול גברים',m.rows,m.tot,m.hrs)+tbl('מסלול נשים',w.rows,w.tot,w.hrs)+tbl('צוות מנהלי',admRows,admTot,null)
     +'<h3 style="margin:14px 0 4px;color:#10717E">פעילות בשבוע האחרון ('+recent.length+' פעולות)</h3>'
     +'<ul style="font-size:13px">'+(Object.entries(actCount).map(([a,n])=>'<li>'+escH(a)+': '+n+'</li>').join('')||'<li>אין פעילות</li>')+'</ul>'
-    +'<p style="font-size:12px;color:#999;border-top:1px solid #eee;padding-top:8px;margin-top:14px">מצורפים: קובץ גיבוי מלא (לשחזור: הגדרות → ייבוא גיבוי) + קובץ בקרה חודשי (Excel). שמור/י מייל זה — זהו גיבוי הנתונים השבועי.</p></div>';
+    +'<p style="font-size:12px;color:#999;border-top:1px solid #eee;padding-top:8px;margin-top:14px">זהו דוח הפעילות השבועי. קובץ הגיבוי המלא (לשחזור) וקובץ הבקרה החודשית מורדים מתוך המערכת (הגדרות → גיבוי → בצע גיבוי עכשיו).</p></div>';
 }
-function sendWeeklyBackup(force,silent){
-  if(!EMAILJS_READY()){ if(!silent)alert('EmailJS לא מוגדר — לא ניתן לשלוח גיבוי'); return; }
-  if(!EMAILJS_BACKUP_TEMPLATE_ID){ if(!silent)alert('תבנית הגיבוי ב-EmailJS טרם הוגדרה.\nהשליחה מושבתת עד להגדרתה (ראה הוראות). כך לא נשלחים מיילים שגויים.'); return; }
-  const now=Date.now();
-  const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup).getTime():0;
-  if(!force && (now-last)<7*24*3600*1000) return; // טרם עבר שבוע — לא שולחים
+// מייל דוח שבועי (ללא צירופים — נתמך בכל רישיון EmailJS)
+function sendWeeklyReport(silent){
+  if(!EMAILJS_READY()){ if(!silent)alert('EmailJS לא מוגדר'); return Promise.resolve(); }
+  if(!EMAILJS_BACKUP_TEMPLATE_ID){ if(!silent)alert('תבנית הדוח ב-EmailJS טרם הוגדרה (ראה הוראות).'); return Promise.resolve(); }
   const to=DB.backupEmail||BACKUP_EMAIL_DEFAULT;
   const nowD=new Date();const month=nowD.getFullYear()+'-'+String(nowD.getMonth()+1).padStart(2,'0');
-  const backupJson=JSON.stringify({version:'v5',exported:new Date().toISOString(),DB:DB});
-  let controlXml='';try{controlXml=exportMonthlyControlExcel(month,true)||'';}catch(e){}
-  const reportHtml=_weeklyReportHtml(month);
-  const base={to_name:'דוד',to_email:to,email:to,subject:'גיבוי + דוח שבועי — שירת הלויים ('+nowD.toLocaleDateString('he-IL')+')',description:'גיבוי ודוח פעילות שבועי',message_html:reportHtml};
   emailjs.init(EMAILJS_PRIVATE_KEY?{publicKey:EMAILJS_PUBLIC_KEY,privateKey:EMAILJS_PRIVATE_KEY}:{publicKey:EMAILJS_PUBLIC_KEY});
-  Promise.resolve(_gzipB64(backupJson)).then(gz=>{
-    const backupContent=gz||_b64utf8(backupJson);
-    const ctrlContent=_b64utf8(controlXml);
-    const withAtt=Object.assign({},base,{backup_name:'shirat_backup_'+month+(gz?'.json.gz':'.json'),backup_content:backupContent,control_name:'בקרה_'+month+'.xls',control_content:ctrlContent});
-    // נסיון עם צירופים; אם נכשל (בד"כ מגבלת-גודל/הגדרת-תבנית) — שולחים לפחות את הדוח
-    return emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_BACKUP_TEMPLATE_ID,withAtt)
-      .catch(()=>emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_BACKUP_TEMPLATE_ID,base).then(()=>'report-only'));
-  }).then(res=>{
-    DB.lastWeeklyBackup=new Date().toISOString();saveDB();
-    logAction('גיבוי+דוח שבועי נשלח',to+(res==='report-only'?' (דוח בלבד — צירופים דורשים הגדרת תבנית EmailJS)':''));
-    if(!silent)alert('✓ נשלח ל-'+to+(res==='report-only'?'\n(הדוח נשלח; לצירוף קבצים דרושה הגדרת התבנית ב-EmailJS — ראה הודעתי)':''));
-  }).catch(e=>{console.error('weekly backup send:',e);if(!silent)alert('שגיאה בשליחת הגיבוי: '+(e.text||e.message||e));});
+  return emailjs.send(EMAILJS_SERVICE_ID,EMAILJS_BACKUP_TEMPLATE_ID,{to_name:'דוד',to_email:to,email:to,subject:'דוח שבועי — שירת הלויים ('+nowD.toLocaleDateString('he-IL')+')',description:'דוח פעילות שבועי',message_html:_weeklyReportHtml(month)})
+    .then(()=>{logAction('דוח שבועי נשלח',to);if(!silent)alert('✓ הדוח נשלח ל-'+to);})
+    .catch(e=>{console.error('weekly report:',e);if(!silent)alert('שגיאה בשליחת הדוח: '+(e.text||e.message||e));});
 }
+// הורדת קבצי הגיבוי (JSON לשחזור + בקרה חודשית) — אמין, ללא תלות ברישיון מייל
+function downloadWeeklyFiles(){
+  try{exportBackup();}catch(e){console.error(e);}
+  const nowD=new Date();const month=nowD.getFullYear()+'-'+String(nowD.getMonth()+1).padStart(2,'0');
+  setTimeout(()=>{try{exportMonthlyControlExcel(month);}catch(e){console.error(e);}},600);
+}
+function _weeklyBackupDue(){const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup).getTime():0;return (Date.now()-last)>=7*24*3600*1000;}
+// גיבוי שבועי מלא: הורדת קבצים + שליחת דוח למייל + סימון תאריך
+function runWeeklyBackup(silent){
+  downloadWeeklyFiles();
+  Promise.resolve(sendWeeklyReport(true)).then(()=>{
+    DB.lastWeeklyBackup=new Date().toISOString();saveDB();
+    _initBackupUI&&_initBackupUI();
+    const b=document.getElementById('weekly-backup-banner');if(b)b.remove();
+    if(!silent)alert('✓ קובץ הגיבוי + הבקרה הורדו'+(EMAILJS_BACKUP_TEMPLATE_ID?' ודוח נשלח למייל':'')+'.\nשמור/י את הקבצים במקום בטוח.');
+  });
+}
+function _showBackupBanner(){
+  if(document.getElementById('weekly-backup-banner'))return;
+  const host=document.getElementById('app-screen');if(!host)return;
+  const b=document.createElement('div');b.id='weekly-backup-banner';
+  b.style.cssText='background:#FDF6E3;border-bottom:1px solid #E6A23C;color:#854F0B;padding:8px 16px;font-size:13px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap';
+  b.innerHTML='🛡️ <b>הגיע זמן הגיבוי השבועי</b> — לחיצה תוריד קובץ גיבוי + בקרה'+(EMAILJS_BACKUP_TEMPLATE_ID?' ותשלח דוח למייל':'')+'.'
+    +' <button onclick="runWeeklyBackup(false)" style="background:#10717E;color:#fff;border:none;border-radius:6px;padding:5px 16px;font-size:13px;font-weight:600;cursor:pointer">⬇ בצע גיבוי עכשיו</button>'
+    +' <button onclick="var e=document.getElementById(\'weekly-backup-banner\');if(e)e.remove();" style="background:none;border:none;color:#854F0B;cursor:pointer;font-size:12px">אחר כך</button>';
+  host.insertBefore(b,host.firstChild);
+}
+function _maybeWeeklyBackupBanner(){ if(_weeklyBackupDue())_showBackupBanner(); }
 function _downloadXls(data,filename){
   let xml='<?xml version="1.0" encoding="UTF-8"?>\n<?mso-application progid="Excel.Sheet"?>\n<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="פירוט"><Table>';
   // עמודות: שם המוטב(150) | בנק(60) | מספר סניף(70) | מספר חשבון(110) | מהות העברה(150) | סכום ₪(80)
@@ -3919,7 +3933,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{sendWeeklyBackup(false,true);}catch(e){console.error('weekly backup:',e);}},4000);}}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeWeeklyBackupBanner();}catch(e){console.error('weekly backup:',e);}},4000);}}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
