@@ -577,14 +577,52 @@ function _computeDirty(){
   });
   return {payload,keys};
 }
-function _pushDirty(){
+// מיזוג השינוי המקומי (myVal) על-גבי ערך-השרת הטרי, לפי id (אוסף-רשומות) או לפי מפתח (מפת-אובייקט).
+// shadowStr = מצב-הבסיס שממנו נגזרת הדלתא שלי. מאפשר לשני משתמשים לערוך רשומות שונות — ושניהם נשמרים.
+function _mergeKey(key, serverVal, shadowStr, myVal){
+  let shadowVal; try{ shadowVal=(shadowStr!==undefined)?JSON.parse(shadowStr):undefined; }catch(e){ shadowVal=undefined; }
+  if(Array.isArray(myVal) && myVal.length && myVal.every(x=>x&&x.id!==undefined)){
+    const server=Array.isArray(serverVal)?serverVal.slice():[];
+    const shadowArr=Array.isArray(shadowVal)?shadowVal:[];
+    const shadowById=new Map(shadowArr.map(x=>[x&&x.id, JSON.stringify(x)]));
+    const myIds=new Set(myVal.map(x=>x.id));
+    const myDeleted=new Set([...shadowById.keys()].filter(id=>!myIds.has(id)));
+    let merged=server.filter(x=>!(x&&myDeleted.has(x.id)));
+    myVal.forEach(x=>{ const changed=!shadowById.has(x.id)||shadowById.get(x.id)!==JSON.stringify(x); if(changed){ const i=merged.findIndex(y=>y&&y.id===x.id); if(i>=0)merged[i]=x; else merged.push(x); } });
+    return merged;
+  }
+  if(myVal && typeof myVal==='object' && !Array.isArray(myVal)){
+    const server=(serverVal&&typeof serverVal==='object'&&!Array.isArray(serverVal))?Object.assign({},serverVal):{};
+    const shadowObj=(shadowVal&&typeof shadowVal==='object'&&!Array.isArray(shadowVal))?shadowVal:{};
+    Object.keys(shadowObj).forEach(k=>{ if(!(k in myVal)) delete server[k]; });               // מחיקות שלי
+    Object.keys(myVal).forEach(k=>{ if(JSON.stringify(myVal[k])!==JSON.stringify(shadowObj[k])) server[k]=myVal[k]; }); // שינויים/הוספות שלי
+    return server;
+  }
+  return myVal; // סקלר / מערך-ללא-id → שלי גובר (נדיר)
+}
+function _pushDirty(attempt){
+  attempt=attempt||0;
   const {payload,keys}=_computeDirty();
-  if(!keys.length){ _fbIgnoreNext=false; return Promise.resolve(); }
+  if(!keys.length){ if(!attempt)_fbIgnoreNext=false; return Promise.resolve(); }
   const rev=(_serverRev||0)+1; payload._rev=rev;
+  const oldShadow={}, myVals={}; keys.forEach(k=>{ oldShadow[k]=_dbShadow[k]; myVals[k]=DB[k]; });
   return fbDB.ref(FB_PATH).update(payload).then(()=>{
     keys.forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} });
     _serverRev=rev;
-  }).catch(err=>{ _fbIgnoreNext=false; _onWriteRejected(err); throw err; });
+  }).catch(err=>{
+    const denied=/permission|denied/i.test(((err&&err.code)||'')+((err&&err.message)||''));
+    if(denied && attempt<6){
+      // התנגשות _rev (משתמש אחר כתב) — מזגים את השינוי שלי על מצב-השרת הטרי, ומנסים שוב אוטומטית. ללא התראה, ללא אובדן.
+      return fbDB.ref(FB_PATH).once('value').then(snap=>{
+        const server=snap.val()||{};
+        _applySnapshot(server);                                   // DB←server, shadow←server, _serverRev←server._rev
+        keys.forEach(k=>{ DB[k]=_mergeKey(k, server[k], oldShadow[k], myVals[k]); });
+        _rerenderCurrentPage();
+        return _pushDirty(attempt+1);
+      }).catch(e=>{ _fbIgnoreNext=false; _onWriteRejected(e); throw e; });
+    }
+    _fbIgnoreNext=false; _onWriteRejected(err); throw err;
+  });
 }
 let _writeRejectNoticeAt=0;
 function _onWriteRejected(err){
@@ -618,7 +656,7 @@ window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260719;
+const APP_VERSION = 20260720;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
