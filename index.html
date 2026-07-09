@@ -480,6 +480,10 @@ tr.drag-over td{border-top:2px solid #10717E}
             </div>
           </div>
         </div>
+        <div class="card" id="active-users-card" style="display:none"><div class="ct" style="display:flex;align-items:center;justify-content:space-between"><span>👥 משתמשים פעילים כרגע</span><button class="btn btn-sm" onclick="renderActivePanel()" title="רענן">↻</button></div>
+          <p style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px">מכשירים המחוברים כעת, התפקיד שלהם, והאם הם על הגרסה העדכנית.</p>
+          <div id="active-users-list"></div>
+        </div>
         <div class="card"><div class="ct">ייבוא חכם (AI) — מפתח API</div>
           <div style="display:flex;flex-direction:column;gap:8px">
             <p style="font-size:12px;color:var(--color-text-secondary)">מפתח נדרש לייבוא קבצי Excel לצוות מנהלי. נשמר מקומית בדפדפן בלבד (לא ב-Firebase).</p>
@@ -651,12 +655,40 @@ function _rerenderCurrentPage(){
 // G3 — מזהה ייחודי: Date.now + מונה, כדי ששני אובייקטים שנוצרים באותה מילישנייה (ייבוא/הקלקה מהירה) לא יקבלו אותו id
 let _uidCtr=0;
 function _uid(p){return (p||'')+Date.now().toString(36)+(_uidCtr++).toString(36);}
+// ── נוכחות: כל מכשיר מחובר רושם /presence/<id> {role,version,at}, עם ניקוי-אוטומטי בניתוק ──
+let _presenceId=null,_presenceTimer=null;
+function _registerPresence(){
+  try{
+    if(!fbDB)return; if(!_presenceId)_presenceId=_uid('pr');
+    const ref=fbDB.ref(FB_PATH+'/presence/'+_presenceId);
+    const lbl={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי'}[currentRole]||currentRole||'—';
+    ref.set({role:currentRole||'—',roleName:lbl,v:APP_VERSION,at:Date.now()}).catch(()=>{});
+    ref.onDisconnect().remove();
+    clearInterval(_presenceTimer);
+    _presenceTimer=setInterval(()=>{ try{ ref.child('at').set(Date.now()).catch(()=>{}); }catch(e){} },60000);
+  }catch(e){}
+}
+function _clearPresence(){ try{ if(_presenceId)fbDB.ref(FB_PATH+'/presence/'+_presenceId).remove().catch(()=>{}); }catch(e){} clearInterval(_presenceTimer); }
+function renderActivePanel(){
+  const el=document.getElementById('active-users-list');if(!el)return;
+  el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary);padding:6px">טוען…</div>';
+  fbDB.ref(FB_PATH+'/presence').once('value').then(snap=>{
+    const p=snap.val()||{};const now=Date.now();
+    const list=Object.values(p).filter(x=>x&&(now-(x.at||0))<5*60000).sort((a,b)=>(b.at||0)-(a.at||0));
+    if(!list.length){ el.innerHTML='<div style="font-size:12px;color:var(--color-text-tertiary);padding:6px">אין משתמשים פעילים כרגע</div>'; return; }
+    const anyOld=list.some(x=>String(x.v)!==String(APP_VERSION));
+    el.innerHTML=list.map(x=>{
+      const cur=String(x.v)===String(APP_VERSION);const ago=Math.max(0,Math.round((now-(x.at||now))/60000));
+      return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 9px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px"><span style="font-weight:500">'+escH(x.roleName||x.role||'—')+'</span><span style="font-size:11px;padding:1px 7px;border-radius:10px;background:'+(cur?'rgba(59,109,17,0.12)':'rgba(163,45,45,0.12)')+';color:'+(cur?'#3B6D11':'#A32D2D')+'">'+(cur?'✓ מעודכן':'⚠ גרסה ישנה')+'</span><span style="color:var(--color-text-tertiary);font-size:11px;min-width:70px;text-align:left">'+(ago<1?'עכשיו':'לפני '+ago+' דק׳')+'</span></div>';
+    }).join('')+(anyOld?'<div style="font-size:11px;color:#A32D2D;padding:5px 6px">⚠ יש מכשיר על גרסה ישנה — כדאי לרענן אותו (Ctrl+F5).</div>':'');
+  }).catch(()=>{ el.innerHTML='<div style="font-size:12px;color:#A32D2D;padding:6px">שגיאת טעינה — ודא/י שחוק ה-/presence פורסם ב-Firebase.</div>'; });
+}
 function _flushPending(){ try{ clearTimeout(_fbSaveTimer); _pushDirty(); }catch(e){} }
 window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260720;
+const APP_VERSION = 20260721;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -2984,7 +3016,7 @@ function importBankDataFromSheet(){
 function setBankField(i,field,val){if(typeof DB.lecturers[i].bank!=='object')DB.lecturers[i].bank=parseBankStr(DB.lecturers[i].bank);DB.lecturers[i].bank[field]=val;saveDB();}
 function downloadCSV(rows,filename){const bom='\uFEFF';const csv=bom+rows.map(r=>r.map(c=>{const s=String(c||'');return s.includes(',')||s.includes('"')||s.includes('\n')?'"'+s.replace(/"/g,'""')+'"':s;}).join(',')).join('\n');const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function switchSTab(tab){['lect','priv','sched','extra','admin'].forEach(t=>{const p=document.getElementById(t+'-panel');if(p)p.style.display=t===tab?'block':'none';const b=document.getElementById('stab-'+t);if(b)b.classList.toggle('act',t===tab);});if(tab==='sched')renderSchedEditor();if(tab==='admin')renderAdminStaff();}
-function renderSettings(keepTab){if(!keepTab)switchSTab('lect');renderAdminStaff();_initBackupUI();['m','w'].forEach(t=>{const el=document.getElementById('quota-rows-'+t);if(!el)return;const qs2=(DB.groups[t]||[]);el.innerHTML='';qs2.forEach(function(grpName,i){
+function renderSettings(keepTab){if(!keepTab)switchSTab('lect');renderAdminStaff();_initBackupUI();(function(){const c=document.getElementById('active-users-card');if(c){if(currentRole==='principal'){c.style.display='';renderActivePanel();}else c.style.display='none';}})();['m','w'].forEach(t=>{const el=document.getElementById('quota-rows-'+t);if(!el)return;const qs2=(DB.groups[t]||[]);el.innerHTML='';qs2.forEach(function(grpName,i){
       var q=(DB.quotas[t]||[]).find(function(x){return x.year===grpName;});
       var manual=q&&q.quota>0?q.quota:'';
       var tr=document.createElement('tr');
@@ -3983,7 +4015,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeWeeklyBackupBanner();}catch(e){console.error('weekly backup:',e);}},4000);}}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();_registerPresence();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeWeeklyBackupBanner();}catch(e){console.error('weekly backup:',e);}},4000);}}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
@@ -3992,7 +4024,7 @@ function checkReturnedItems(){
   msg+='\nלעבור לאישורים?';
   if(confirm(msg)){const btn=document.querySelector('#main-nav .nb');nav('approval',btn);}
 }
-function logout(){clearTimeout(_sessionTimer);_sessionTimer=null;currentRole=null;pendingRole=null;currentTrack=null;document.getElementById('login-screen').style.display='flex';document.getElementById('app-screen').classList.remove('active');document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');document.getElementById('pin-input').value='';}
+function logout(){_clearPresence();clearTimeout(_sessionTimer);_sessionTimer=null;currentRole=null;pendingRole=null;currentTrack=null;document.getElementById('login-screen').style.display='flex';document.getElementById('app-screen').classList.remove('active');document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');document.getElementById('pin-input').value='';}
 const ROLE_PAGES={principal:['dash','entry','private','approval','monthly','payments','admin','gantt','settings'],coord_m:['dash','entry','private','approval','monthly','payments','gantt','settings'],coord_w:['dash','entry','private','approval','monthly','payments','gantt','settings'],office:['dash','entry','private','payments','monthly','admin','gantt','settings'],teacher:['teacher'],staff:['staffrep']};
 function applyRoleNav(role){if(role==='staff'){document.getElementById('main-nav').style.display='none';document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.getElementById('pg-staffrep').classList.add('act');initStaffReport();return;}document.getElementById('main-nav').style.display='';const allowed=ROLE_PAGES[role]||ROLE_PAGES.principal;let first=null;document.getElementById('main-nav').querySelectorAll('.nb').forEach(btn=>{const m=btn.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;const show=id&&allowed.includes(id);btn.style.display=show?'':'none';if(show&&!first)first=btn;});document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));if(first){const m=first.getAttribute('onclick')?.match(/nav\('(\w+)'/);const id=m?m[1]:null;if(id){document.getElementById('pg-'+id)?.classList.add('act');first.classList.add('act');}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='private')renderPrivate();if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}}}
 function nav(id,btn){document.querySelectorAll('.pg').forEach(p=>p.classList.remove('act'));document.querySelectorAll('.nb').forEach(b=>b.classList.remove('act'));document.getElementById('pg-'+id)?.classList.add('act');if(btn)btn.classList.add('act');if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='private')renderPrivate();if(id==='approval'){approvalTrackFilter=currentRole==='coord_m'?'m':currentRole==='coord_w'?'w':'all';renderApproval();switchATab('days');}if(id==='monthly'){buildAllMonthDropdowns();renderMonthly();}if(id==='settings'){renderSettings();switchSTab('lect');}if(id==='payments'){buildAllMonthDropdowns();renderPayments();}if(id==='teacher'){initTeacher();renderTeacher();}if(id==='dash'){buildMonthCheckboxes();renderDash();}if(id==='entry'){document.getElementById('e-date').value=new Date().toISOString().split('T')[0];onDateChange();}if(id==='gantt'){renderGantt();}if(id==='admin'){renderAdminHours();}}
