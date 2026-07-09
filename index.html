@@ -618,7 +618,7 @@ window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260718;
+const APP_VERSION = 20260719;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -4237,7 +4237,8 @@ function _monthlyStatusMatch(st){
 // תצוגה בלבד — הנתון נשאר בחודש המקור; הפעולות מעדכנות את מפתח-המקור.
 function _carriedOverPayments(viewedMonth){
   // "הושלם" = קבלה/חשבונית התקבלה, או שכיר ששולם (שכיר לא צריך קבלה). ספק ששולם וטרם נתן קבלה — נשאר מועבר.
-  const isClosed=(st,type)=>st==='received'||st==='invoice'||(st==='done'&&type==='employee');
+  // "מועבר" = תשלום מחודש קודם שעדיין **לא שולם**. כל ששולם (שולם/קבלה/חשבונית) — יוצא מהמעבר.
+  const isClosed=(st)=>st==='done'||st==='received'||st==='invoice';
   const months=new Set();
   (DB.days||[]).forEach(d=>{const m=(d.date||'').slice(0,7);if(m&&m<viewedMonth&&d.dayApproval==='approved')months.add(m);});
   (DB.privateLessons||[]).forEach(p=>{const m=(p.date||'').slice(0,7);if(m&&m<viewedMonth&&p.privApproval==='approved')months.add(m);});
@@ -4446,7 +4447,7 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
   if(carried.length){
     const HEBm=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
     const hdr=document.createElement('div');
-    hdr.innerHTML='<div style="font-size:12px;font-weight:600;color:#854F0B;margin:14px 0 6px;padding:8px 11px;background:rgba(250,238,218,0.55);border:0.5px solid #FAC775;border-radius:var(--border-radius-md)">⏮ מועברים מחודשים קודמים — טרם הושלמו ('+carried.length+')</div>';
+    hdr.innerHTML='<div style="font-size:12px;font-weight:600;color:#854F0B;margin:14px 0 6px;padding:8px 11px;background:rgba(250,238,218,0.55);border:0.5px solid #FAC775;border-radius:var(--border-radius-md)">⏮ מועברים מחודשים קודמים — טרם שולמו ('+carried.length+')</div>';
     container.appendChild(hdr);
     carried.forEach(it=>{
       const d=new Date(it.om+'-01');const omLabel=HEBm[d.getMonth()]+' '+d.getFullYear();
@@ -4455,9 +4456,6 @@ ${vat>0?`<span>מע״מ: <strong>₪${vat.toLocaleString('he-IL')}</strong></spa
       if(it.status==='approved'){
         stBadge='<span class="badge b-ok" style="font-size:10px">אושר — ממתין לתשלום</span>';
         actions=`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'done')">✓ שולם</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="${fn}'pending')" title="החזר לממתין">↩</button>`;
-      } else if(it.status==='done'){
-        stBadge='<span class="badge b-ok" style="font-size:10px">שולם ✓ — ממתין קבלה</span>';
-        actions=`<button class="btn btn-sm" style="font-size:10px;padding:2px 8px;background:#E8F4FC;color:#085041;border-color:#A0CDE8" onclick="${fn}'received')">התקבלה קבלה / חשבונית ✓</button><button class="btn btn-sm" style="font-size:10px;padding:2px 5px" onclick="${fn}'approved')" title="החזר לממתין תשלום">↩</button>`;
       } else {
         stBadge='<span class="badge b-pend" style="font-size:10px">ממתין</span>';
         actions=`<button class="btn btn-ok btn-sm" style="font-size:10px;padding:2px 8px" onclick="${fn}'approved')">✓ אשר</button>`;
