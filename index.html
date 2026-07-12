@@ -688,7 +688,7 @@ window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260725;
+const APP_VERSION = 20260726;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -3103,8 +3103,20 @@ function updateSchedRow(key,gi,ri,field,val){
   }
   saveDB();
 }
-function removeSchedGroup(key,gi){if(DB.schedule[key])DB.schedule[key].groups.splice(gi,1);saveDB();renderSchedEditor();}
-function removeSchedRow(key,gi,ri){if(DB.schedule[key]&&DB.schedule[key].groups[gi])DB.schedule[key].groups[gi].rows.splice(ri,1);saveDB();renderSchedEditor();}
+function removeSchedGroup(key,gi){
+  var sec=DB.schedule&&DB.schedule[key]; if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi])return;
+  var gname=(sec.groups[gi]&&sec.groups[gi].name)||'';
+  if(!confirm('למחוק את הקבוצה "'+gname+'" וכל השורות שבה?'))return;
+  sec.groups.splice(gi,1);
+  saveDB();renderSchedEditor();
+}
+function removeSchedRow(key,gi,ri){
+  var sec=DB.schedule&&DB.schedule[key];
+  if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]||!Array.isArray(sec.groups[gi].rows)||!sec.groups[gi].rows[ri])return;
+  if(!confirm('למחוק שורה זו מהמערכת?'))return;
+  sec.groups[gi].rows.splice(ri,1);
+  saveDB();renderSchedEditor();
+}
 function addSchedGroup(key,track){
   if(!DB.schedule[key])DB.schedule[key]={source:'sched',groups:[]};
   const grpList=getGrps(track);
