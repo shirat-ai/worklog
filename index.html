@@ -781,23 +781,83 @@ function _pruneBackups(){
     }).catch(function(){});
   }catch(e){}
 }
-// שכבה 5: שומר-מחיקות. אם שמירה עומדת למחוק אוסף שלם (אורך>0 → 0) או לצמצם דרסטית — גיבוי-חובה של המצב-הקודם קודם.
+// ── אוספים קריטיים + פונקציית-גודל (מערך=אורך, מפה=מס' מפתחות) ──
+var _CRIT = {lecturers:'arr',students:'arr',days:'arr',privateLessons:'arr',adminStaff:'arr',miscPayments:'arr',
+  manualPayments:'arr',manualPayees:'arr',ganttPlanned:'arr',payStatuses:'map',payOverrides:'map',payNotes:'map',
+  adminHours:'map',adminHoursStatus:'map',payDoneDates:'map',lockedMonths:'map',schedule:'map',scheduleSets:'arr'};
+function _sizeOf(v,t){ if(t==='arr')return Array.isArray(v)?v.length:0; return (v&&typeof v==='object')?Object.keys(v).length:0; }
+function _critCounts(src){ var c={}; Object.keys(_CRIT).forEach(function(k){ c[k]=_sizeOf((src||DB)[k],_CRIT[k]); }); return c; }
+
+// גיבוי המצב **הקודם** (מהצל = מה שהיה בשרת לפני השינוי הנוכחי) — כדי שדריסה/מחיקה תהיה תמיד ניתנת-לשחזור.
+function _backupPriorState(tag,note){
+  try{
+    if(typeof fbDB==='undefined'||!fbDB)return;
+    var snap={}; _BACKUP_KEYS.forEach(function(k){ var s=_dbShadow[k]; if(s!==undefined){ try{ snap[k]=JSON.parse(s); }catch(e){} } });
+    var id=(tag||'guard')+'_'+Date.now();
+    fbDB.ref(FB_PATH+'/backups/'+id).set({at:Date.now(),rev:(_serverRev||0),by:(typeof currentRole!=='undefined'&&currentRole)||'—',tag:tag||'guard',note:note||'',db:snap})
+      .then(function(){ _pruneBackups(); }).catch(function(){});
+  }catch(e){}
+}
+
+// שכבה 5 (מחוזק): שומר-מחיקות. אם שמירה עומדת לצמצם אוסף קריטי דרסטית — מגבים את **המצב הקודם** (הצל) מיד, ומסמנים אזהרה.
+var _lastDeletionAlert='';
 function _deletionGuard(){
   try{
-    _PROT_ARR.forEach(function(k){
-      var shadowStr=_dbShadow[k]; if(!shadowStr)return;
+    var suspicious=[];
+    Object.keys(_CRIT).forEach(function(k){
+      var shadowStr=_dbShadow[k]; if(shadowStr===undefined)return;
       var before; try{ before=JSON.parse(shadowStr); }catch(e){ return; }
-      if(!Array.isArray(before)||!before.length)return;
-      var after=Array.isArray(DB[k])?DB[k]:[];
-      if(after.length===0 || after.length < before.length*0.5){  // התרוקנות/צמצום >50%
-        console.warn('שומר-מחיקות: '+k+' '+before.length+'→'+after.length+' — מגבה מצב קודם');
-        _maybeBackup(true);
-      }
+      var bLen=_sizeOf(before,_CRIT[k]); if(bLen<2)return;         // אין מה להגן (ריק/יחיד)
+      var aLen=_sizeOf(DB[k],_CRIT[k]);
+      if(aLen===0 || aLen < bLen*0.5){ suspicious.push(k+' '+bLen+'→'+aLen); }   // התרוקנות / צמצום >50%
     });
+    if(suspicious.length){
+      _lastDeletionAlert=suspicious.join(' · ');
+      console.warn('⚠️ שומר-מחיקות: צמצום חריג — '+_lastDeletionAlert+' → מגבה מצב-קודם');
+      _backupPriorState('predelete', _lastDeletionAlert);
+    }
+  }catch(e){}
+}
+
+// שכבה 7 — ניטור-שלמות בטעינה: משווה את מספרי-הרשומות שנטענו ל"ידוע-כתקין" האחרון (localStorage + גיבוי-ענן אחרון).
+// אם אוסף קריטי צנח — מציג אזהרה בולטת למנהל עם אפשרות שחזור. כך אירוע-מחיקה **נראה מיד**, לא מתגלה שבועות אחרי.
+function _checkIntegrityOnLoad(){
+  try{
+    var cur=_critCounts();
+    var base={}; try{ base=JSON.parse(localStorage.getItem('sh_integrity')||'{}'); }catch(e){}
+    // צלב גם עם ספירת הגיבוי-ענן האחרון (חוצה-מכשירים)
+    fbDB.ref(FB_PATH+'/backups').limitToLast(1).once('value').then(function(s){
+      var b=s.val()||{}; var last=Object.values(b)[0];
+      var lastCounts=last&&last.db?_critCounts(last.db):{};
+      var drops=[];
+      Object.keys(_CRIT).forEach(function(k){
+        var known=Math.max(base[k]||0, lastCounts[k]||0);
+        if(known>=3 && cur[k] < known*0.5){ drops.push({k:k,from:known,to:cur[k]}); }   // ירידה >50% מאוסף בעל תוכן
+      });
+      if(drops.length) _showIntegrityAlert(drops);
+      _writeIntegrityBaseline(cur);   // עדכן בסיס אחרי הבדיקה
+    }).catch(function(){ _writeIntegrityBaseline(cur); });
+  }catch(e){}
+}
+function _writeIntegrityBaseline(c){ try{ localStorage.setItem('sh_integrity', JSON.stringify(c||_critCounts())); }catch(e){} }
+function _showIntegrityAlert(drops){
+  try{
+    if(typeof currentRole!=='undefined' && currentRole && currentRole!=='principal' && currentRole!=='office') return; // רק להנהלה
+    var HE={lecturers:'מרצים',students:'תלמידים',days:'ימי לימוד',privateLessons:'שיעורי כלי',adminStaff:'צוות מנהלי',miscPayments:'תשלומים נוספים',manualPayments:'תשלומים ידניים',payStatuses:'סטטוסי תשלום',schedule:'מערכת שעות',scheduleSets:'סמסטרים',adminHours:'שעות מנהלי'};
+    var lines=drops.map(function(d){return '• '+(HE[d.k]||d.k)+': '+d.from+' → '+d.to;}).join('\n');
+    var host=document.getElementById('app-screen')||document.body;
+    var b=document.getElementById('integrity-alert'); if(b)b.remove();
+    b=document.createElement('div'); b.id='integrity-alert';
+    b.style.cssText='background:#FCEBEB;border-bottom:2px solid #A32D2D;color:#7A1F1F;padding:10px 16px;font-size:14px;display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-weight:500';
+    b.innerHTML='⚠️ <b>אזהרת שלמות-נתונים</b> — ירידה חריגה במספר הרשומות מאז השימוש האחרון:<br>'+lines.replace(/\n/g,'<br>')
+      +' <button onclick="showCloudBackups();nav(\'settings\');switchSTab(\'admin\')" style="background:#A32D2D;color:#fff;border:none;border-radius:6px;padding:5px 14px;font-size:13.5px;font-weight:600;cursor:pointer">בדוק/שחזר מגיבוי</button>'
+      +' <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#7A1F1F;cursor:pointer;font-size:13px">סגור</button>';
+    host.insertBefore(b, host.firstChild);
+    try{ _backupPriorState('integrity_drop', drops.map(function(d){return d.k+':'+d.from+'>'+d.to;}).join(',')); }catch(e){}
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260739;
+const APP_VERSION = 20260740;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -2964,6 +3024,7 @@ function loadDB() {
     _loadOK = true;                          // ✅ טעינה הצליחה — מעכשיו מותר לכתוב
     try{ var _rc=_restoreFromMirror(); if(_rc)console.warn('טעינה: שוחזרו',_rc,'רשומות שלא נשמרו מרענון קודם'); }catch(e){} // שכבה 2
     try{ _maybeBackup(true); }catch(e){}   // שכבה 6: גיבוי-פתיחה
+    try{ _checkIntegrityOnLoad(); }catch(e){} // שכבה 7: ניטור-שלמות — אזהרה אם אוסף קריטי צנח
     // אם צומת codes חסר בענן (DB חדש/שוחזר) — זרע פעם אחת, אחרת saveDB לא יכתוב codes לעולם
     if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
     _checkAppVersion(_sv&&_sv.appVersion);
