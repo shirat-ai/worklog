@@ -589,6 +589,14 @@ function _computeDirty(){
 // מיזוג השינוי המקומי (myVal) על-גבי ערך-השרת הטרי, לפי id (אוסף-רשומות) או לפי מפתח (מפת-אובייקט).
 // shadowStr = מצב-הבסיס שממנו נגזרת הדלתא שלי. מאפשר לשני משתמשים לערוך רשומות שונות — ושניהם נשמרים.
 function _mergeKey(key, serverVal, shadowStr, myVal){
+  // לוג-פעילות: מערך append-only ללא id → איחוד כל הרשומות מכל המכשירים (לפי חתימה), לעולם לא לדרוס/לאבד.
+  if(key==='activityLog'){
+    var _srv=Array.isArray(serverVal)?serverVal:[], _mine=Array.isArray(myVal)?myVal:[];
+    var _seen={}, _out=[];
+    _srv.concat(_mine).forEach(function(e){ if(!e)return; var sig=(e.ts||'')+'|'+(e.action||'')+'|'+(e.details||''); if(!_seen[sig]){_seen[sig]=1;_out.push(e);} });
+    _out.sort(function(a,b){ return String(b.ts||'').localeCompare(String(a.ts||'')); });
+    return _out.slice(0,500);
+  }
   let shadowVal; try{ shadowVal=(shadowStr!==undefined)?JSON.parse(shadowStr):undefined; }catch(e){ shadowVal=undefined; }
   if(Array.isArray(myVal) && myVal.length && myVal.every(x=>x&&x.id!==undefined)){
     const server=Array.isArray(serverVal)?serverVal.slice():[];
@@ -768,7 +776,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260730;
+const APP_VERSION = 20260731;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
