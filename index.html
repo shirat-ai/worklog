@@ -469,7 +469,7 @@ tr.drag-over td{border-top:2px solid #10717E}
             </div>
             <div id="backup-msg" style="font-size:12.5px;color:#3B6D11;display:none"></div>
             <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:6px;padding-top:8px">
-              <p style="font-size:13.5px;color:var(--color-text-secondary);margin-bottom:5px">🛡️ <b>גיבוי שבועי</b> — פעם בשבוע בכניסת מנהל/משרד תופיע תזכורת. לחיצה מורידה קובץ גיבוי (לשחזור) + בקרה חודשית, ושולחת דוח פעילות למייל.</p>
+              <p style="font-size:13.5px;color:var(--color-text-secondary);margin-bottom:5px">🛡️ <b>גיבוי יומי אוטומטי</b> — בכניסה הראשונה של כל יום יורד אוטומטית למחשב קובץ גיבוי מלא (עובדים, מערכת-שעות, קבוצות, ימים ושעות). כל מחשב שומר עותק עצמאי. מומלץ לשמור את הקבצים בתיקייה קבועה.</p>
               <div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap">
                 <input id="backup-email" type="email" placeholder="david@shirat.net" style="font-size:13.5px;padding:4px 8px;border:0.5px solid var(--color-border-secondary);border-radius:6px;width:190px">
                 <button class="btn btn-sm btn-g" onclick="saveBackupEmail()">שמור נמען</button>
@@ -768,7 +768,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260729;
+const APP_VERSION = 20260730;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3897,7 +3897,30 @@ function downloadWeeklyFiles(){
   setTimeout(()=>{try{exportMonthlyControlExcel(month);}catch(e){console.error(e);}},600);
   return ok; // true רק אם קובץ-הגיבוי נוצר בפועל
 }
-function _weeklyBackupDue(){const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup).getTime():0;return (Date.now()-last)>=7*24*3600*1000;}
+function _weeklyBackupDue(){const last=DB.lastWeeklyBackup?new Date(DB.lastWeeklyBackup):null;if(!last)return true;return last.toLocaleDateString('en-CA')!==new Date().toLocaleDateString('en-CA');}
+// גיבוי יומי אוטומטי חיצוני: פעם ביום לכל מחשב — מוריד קובץ מלא (עובדים+מערכת-שעות+קבוצות+ימים+שעות) + גיבוי-ענן.
+// המדד per-browser (localStorage) כדי שלכל מנהל יישמר עותק חיצוני עצמאי במחשבו (יתירות מרובת-מחשבים).
+function _maybeDailyBackup(){
+  try{
+    var today=new Date().toLocaleDateString('en-CA');
+    if(localStorage.getItem('sh_dailybk')===today) return; // כבר גובה היום בדפדפן הזה
+    localStorage.setItem('sh_dailybk',today);
+    try{ exportBackup(); }catch(e){ console.error('daily file backup:',e); }   // קובץ חיצוני למחשב
+    try{ _maybeBackup(true); }catch(e){}                                        // גיבוי-ענן
+    DB.lastWeeklyBackup=new Date().toISOString(); saveDB(); if(typeof _initBackupUI==='function')_initBackupUI();
+    _showDailyDoneBanner();
+  }catch(e){ console.error('daily backup:',e); }
+}
+function _showDailyDoneBanner(){
+  if(document.getElementById('weekly-backup-banner'))return;
+  var host=document.getElementById('app-screen'); if(!host)return;
+  var b=document.createElement('div'); b.id='weekly-backup-banner';
+  b.style.cssText='background:#EAF6EC;border-bottom:1px solid #3B6D11;color:#2C5410;padding:8px 16px;font-size:14px;display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap';
+  b.innerHTML='🛡️ <b>גיבוי יומי בוצע</b> — קובץ גיבוי מלא ירד למחשב (שמור/י אותו במקום בטוח). אם הקובץ לא ירד:'
+    +' <button onclick="exportBackup()" style="background:#10717E;color:#fff;border:none;border-radius:6px;padding:5px 14px;font-size:13.5px;font-weight:600;cursor:pointer">⬇ הורד גיבוי</button>'
+    +' <button onclick="var e=document.getElementById(\'weekly-backup-banner\');if(e)e.remove();" style="background:none;border:none;color:#2C5410;cursor:pointer;font-size:13.5px">סגור</button>';
+  host.insertBefore(b,host.firstChild);
+}
 // גיבוי שבועי מלא: הורדת קבצים + שליחת דוח למייל + סימון תאריך — רק אם הגיבוי נוצר בפועל
 function runWeeklyBackup(silent){
   const ok=downloadWeeklyFiles();
@@ -4155,7 +4178,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();_registerPresence();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeWeeklyBackupBanner();}catch(e){console.error('weekly backup:',e);}},4000);}}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();_registerPresence();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeDailyBackup();}catch(e){console.error('daily backup:',e);}},4000);}}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
@@ -4790,7 +4813,7 @@ function exportPayroll(){const month=document.getElementById('m-month').value;co
 
 function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
 function saveBackupEmail(){const v=(document.getElementById('backup-email').value||'').trim();if(v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){alert('כתובת מייל לא תקינה');return;}DB.backupEmail=v||BACKUP_EMAIL_DEFAULT;saveDB();_initBackupUI();alert('נמען הגיבוי עודכן: '+DB.backupEmail);}
-function _initBackupUI(){const e=document.getElementById('backup-email');if(e)e.value=DB.backupEmail||BACKUP_EMAIL_DEFAULT;const l=document.getElementById('backup-last');if(l)l.textContent=DB.lastWeeklyBackup?('גיבוי אחרון נשלח: '+new Date(DB.lastWeeklyBackup).toLocaleString('he-IL')):'טרם נשלח גיבוי שבועי';}
+function _initBackupUI(){const e=document.getElementById('backup-email');if(e)e.value=DB.backupEmail||BACKUP_EMAIL_DEFAULT;const l=document.getElementById('backup-last');if(l)l.textContent=DB.lastWeeklyBackup?('גיבוי אחרון: '+new Date(DB.lastWeeklyBackup).toLocaleString('he-IL')):'טרם בוצע גיבוי';}
 // ☁️ שחזור מגיבויי-ענן אוטומטיים (/backups). למנהל בלבד.
 function showCloudBackups(){
   var el=document.getElementById('cloud-backup-list'); if(!el)return;
