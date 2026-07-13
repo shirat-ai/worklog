@@ -688,10 +688,20 @@ window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260727;
+const APP_VERSION = 20260728;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
-  if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
+  if(v>APP_VERSION){
+    if(!sessionStorage.getItem('sh_rlv'+v)){
+      sessionStorage.setItem('sh_rlv'+v,'1');
+      // קריטי: אל תבצע reload לפני שכל שינוי-ממתין (debounce/דלתא) נשמר ואושר בשרת — אחרת עריכה/הוספה
+      // שנעשתה שנייה לפני פרסום-גרסה נמחקת (כתיבת-רשת אסינכרונית לא מסתיימת ב-beforeunload).
+      var _reload=function(){ try{ location.reload(); }catch(e){} };
+      try{ clearTimeout(_fbSaveTimer); Promise.resolve(_pushDirty()).then(_reload,_reload); }
+      catch(e){ _reload(); }
+    }
+    return;
+  }
   if(v<APP_VERSION){ try{ fbDB.ref(FB_PATH+'/appVersion').set(APP_VERSION); }catch(e){} }
 }
 function saveDB() {
