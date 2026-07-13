@@ -341,7 +341,6 @@ tr.drag-over td{border-top:2px solid #10717E}
       <span>דיווח שעות — צוות מנהלי</span>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <select id="staff-report-sel" style="font-size:14px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500" onchange="onStaffPick()"></select>
-        <button onclick="openStaffSelfAdd()" style="font-size:13.5px;font-weight:600;padding:6px 12px;border:0.5px solid #10717E;border-radius:8px;background:var(--color-background-primary);color:#10717E;cursor:pointer" title="אם שמך לא מופיע ברשימה — הוסף/י את עצמך">➕ הוסף עובד חדש</button>
         <select id="staff-report-month" style="font-size:14px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="renderStaffReport()"></select>
         <button id="btn-save-staff" data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:14px;font-weight:600;padding:6px 18px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer" title="שמירה מיידית של השעות שהזנת">💾 שמירה</button>
       </div>
@@ -798,7 +797,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260737;
+const APP_VERSION = 20260738;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -2989,6 +2988,17 @@ function _applySnapshot(p) {
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
    'schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','payReminderSent','emailSent','manualPayments','manualPayees','lastWeeklyBackup','backupEmail','integrations','scheduleSets','activeScheduleId']
     .forEach(k => { if (p[k] !== undefined && p[k] !== null) DB[k] = p[k]; });
+  // ⚠️ Firebase משמיט אוספים ריקים (מערך/אובייקט ריק נעלם). למשתמש קיים (DB אמיתי), מפתח חסר = **ריק** —
+  // ולא נתוני-הדמו מה-seed (DB={...} בראש הקובץ). בלי זה, מחיקת כל המרצים/תלמידים/תשלומים/מערכת הייתה
+  // "מחזירה" את נתוני-הדמו בטעינה הבאה. (זה השורש הכללי של באג קבוצות-הרפאים בסמסטר קיץ.)
+  var _realDB = (typeof p._rev==='number') || !!p.codes || Array.isArray(p.lecturers) || Array.isArray(p.scheduleSets);
+  if (_realDB) {
+    var _emptyIfAbsent = {lecturers:[],students:[],days:[],privateLessons:[],adminStaff:[],miscPayments:[],
+      manualPayments:[],manualPayees:[],ganttPlanned:[],activityLog:[],messages:[],schedule:{},
+      payOverrides:{},payStatuses:{},payNotes:{},adminHours:{},adminHoursStatus:{},lockedMonths:{},
+      payDoneDates:{},payReminderSent:{},emailSent:{}};
+    Object.keys(_emptyIfAbsent).forEach(function(k){ if (!(k in p)) DB[k] = _emptyIfAbsent[k]; });
+  }
   if (!DB.payNotes) DB.payNotes = {};
   if (!DB.messages) DB.messages = [];
   if (DB.codes && DB.codes.coord && !DB.codes.coord_m) {
