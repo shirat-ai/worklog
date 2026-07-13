@@ -798,7 +798,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260736;
+const APP_VERSION = 20260737;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3020,14 +3020,16 @@ function _applySnapshot(p) {
   if (_localAct && DB.scheduleSets.some(function(s){return s.id===_localAct;})) DB.activeScheduleId=_localAct;
   var _act = DB.scheduleSets.find(function(s){return s.id===DB.activeScheduleId;}) || DB.scheduleSets[0];
   DB.activeScheduleId = _act.id;
+  // כל סט חייב אובייקט data. Firebase משמיט {} ריק, אז לסמסטר ריק אין כלל שדה data בטעינה.
+  // קריטי: אסור למלא סמסטר ריק ב-DB.schedule — כי כשה-schedule ברמה-העליונה חסר (Firebase השמיט),
+  // DB.schedule נשאר מערכת-ברירת-המחדל (דמו) מ-`DB={...}`, וזה הוזרק לקיץ הריק בכל טעינה → קבוצות-רפאים שחוזרות.
+  DB.scheduleSets.forEach(function(s){ if(!s.data || typeof s.data!=='object') s.data={}; });
   if (DB.scheduleSets.length > 1) {
-    // מרובה-סמסטרים: ה-data של הסמסטר הפעיל הוא מקור-האמת — לא node ה-schedule הישן (חריץ יחיד משותף).
-    // אחרת מכשיר עם סמסטר-פעיל אחר (או top-level מיושן) דרס את מערכת-הקיץ בטעינה → "לא מצליח למחוק בקיץ".
-    if (!_act.data || typeof _act.data !== 'object') _act.data = (DB.schedule && typeof DB.schedule==='object') ? DB.schedule : {};
+    // מרובה-סמסטרים: ה-data של הסמסטר הפעיל הוא מקור-האמת. סמסטר ריק נשאר ריק (לא יורש את הדמו).
     DB.schedule = _act.data;
   } else {
-    // סמסטר יחיד (כולל מיגרציה מגרסה ישנה שכתבה רק top-level schedule): schedule ברמה-העליונה יכול לנצח.
-    _act.data = DB.schedule || _act.data || {};
+    // סמסטר יחיד / מיגרציה מגרסה ישנה: רק אם הסט ריק ויש schedule אמיתי ברמה-עליונה — אמצו אותו.
+    if ((!_act.data || !Object.keys(_act.data).length) && DB.schedule && typeof DB.schedule==='object' && Object.keys(DB.schedule).length) _act.data = DB.schedule;
     DB.schedule = _act.data;
   }
   _snapshotShadow(); // הצל = מצב-השרת שזה עתה נטען/סונכרן → שמירות עתידיות כותבות רק דלתא מקומית
@@ -3284,7 +3286,7 @@ function exportScheduleExcel(){
 }
 function _activeSet(){return (DB.scheduleSets||[]).find(s=>s.id===DB.activeScheduleId)||(DB.scheduleSets||[])[0];}
 function _setActiveSem(id){DB.activeScheduleId=id;try{localStorage.setItem('sh_activeSem',id);}catch(e){}}
-function switchScheduleSet(id){const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;_setActiveSem(id);DB.schedule=s.data;saveDB();renderSchedEditor();}
+function switchScheduleSet(id){const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;if(!s.data||typeof s.data!=='object')s.data={};_setActiveSem(id);DB.schedule=s.data;saveDB();renderSchedEditor();}
 function newScheduleSet(){const name=prompt('שם הסמסטר החדש (למשל "סמסטר קיץ" / "סמסטר א\' תשפ"ז"):');if(!name||!name.trim())return;const copy=confirm('להתחיל מהעתקת המערכת הנוכחית ("'+((_activeSet()||{}).name||'')+'")?\n\nאישור = העתק ועֲרוֹך · ביטול = התחל ריק');const data=copy?JSON.parse(JSON.stringify(DB.schedule||{})):{};const cur=_activeSet();if(cur)cur.data=DB.schedule;const s={id:_uid('ss'),name:name.trim(),data};if(!DB.scheduleSets)DB.scheduleSets=[];DB.scheduleSets.push(s);_setActiveSem(s.id);DB.schedule=s.data;saveDB();renderSchedEditor();}
 function renameScheduleSet(){const s=_activeSet();if(!s)return;const n=prompt('שם חדש לסמסטר:',s.name);if(!n||!n.trim())return;s.name=n.trim();saveDB();renderSchedEditor();}
 function deleteScheduleSet(){if((DB.scheduleSets||[]).length<=1){alert('לא ניתן למחוק — חייבת להישאר מערכת שעות אחת לפחות.');return;}const s=_activeSet();if(!s)return;if(!confirm('למחוק את הסמסטר "'+s.name+'"?\nמערכת השעות שלו תימחק. (ימי-לימוד שכבר הוזנו נשמרים בנפרד ולא יושפעו.)'))return;DB.scheduleSets=DB.scheduleSets.filter(x=>x.id!==s.id);const nx=DB.scheduleSets[0];_setActiveSem(nx.id);DB.schedule=nx.data;saveDB();renderSchedEditor();}
