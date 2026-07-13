@@ -798,7 +798,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260735;
+const APP_VERSION = 20260736;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3014,6 +3014,10 @@ function _applySnapshot(p) {
     DB.scheduleSets = [{ id:_uid('ss'), name:"סמסטר ב'", data: DB.schedule || {} }];
     DB.activeScheduleId = DB.scheduleSets[0].id;
   }
+  // הסמסטר-הפעיל הוא העדפת-תצוגה **מקומית לכל מכשיר** — לא ערך משותף. אחרת עדכון נכנס ממכשיר אחר
+  // (או פעימת-נוכחות) דורס את הבחירה שלך חזרה, ואתה עורך/מוחק בטעות מסמסטר אחר. localStorage מנצח על השרת.
+  var _localAct=null; try{ _localAct=localStorage.getItem('sh_activeSem'); }catch(e){}
+  if (_localAct && DB.scheduleSets.some(function(s){return s.id===_localAct;})) DB.activeScheduleId=_localAct;
   var _act = DB.scheduleSets.find(function(s){return s.id===DB.activeScheduleId;}) || DB.scheduleSets[0];
   DB.activeScheduleId = _act.id;
   if (DB.scheduleSets.length > 1) {
@@ -3279,10 +3283,11 @@ function exportScheduleExcel(){
   _downloadXls(rows,'מערכת_שעות.xls');
 }
 function _activeSet(){return (DB.scheduleSets||[]).find(s=>s.id===DB.activeScheduleId)||(DB.scheduleSets||[])[0];}
-function switchScheduleSet(id){const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;DB.activeScheduleId=id;DB.schedule=s.data;saveDB();renderSchedEditor();}
-function newScheduleSet(){const name=prompt('שם הסמסטר החדש (למשל "סמסטר קיץ" / "סמסטר א\' תשפ"ז"):');if(!name||!name.trim())return;const copy=confirm('להתחיל מהעתקת המערכת הנוכחית ("'+((_activeSet()||{}).name||'')+'")?\n\nאישור = העתק ועֲרוֹך · ביטול = התחל ריק');const data=copy?JSON.parse(JSON.stringify(DB.schedule||{})):{};const cur=_activeSet();if(cur)cur.data=DB.schedule;const s={id:_uid('ss'),name:name.trim(),data};if(!DB.scheduleSets)DB.scheduleSets=[];DB.scheduleSets.push(s);DB.activeScheduleId=s.id;DB.schedule=s.data;saveDB();renderSchedEditor();}
+function _setActiveSem(id){DB.activeScheduleId=id;try{localStorage.setItem('sh_activeSem',id);}catch(e){}}
+function switchScheduleSet(id){const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;_setActiveSem(id);DB.schedule=s.data;saveDB();renderSchedEditor();}
+function newScheduleSet(){const name=prompt('שם הסמסטר החדש (למשל "סמסטר קיץ" / "סמסטר א\' תשפ"ז"):');if(!name||!name.trim())return;const copy=confirm('להתחיל מהעתקת המערכת הנוכחית ("'+((_activeSet()||{}).name||'')+'")?\n\nאישור = העתק ועֲרוֹך · ביטול = התחל ריק');const data=copy?JSON.parse(JSON.stringify(DB.schedule||{})):{};const cur=_activeSet();if(cur)cur.data=DB.schedule;const s={id:_uid('ss'),name:name.trim(),data};if(!DB.scheduleSets)DB.scheduleSets=[];DB.scheduleSets.push(s);_setActiveSem(s.id);DB.schedule=s.data;saveDB();renderSchedEditor();}
 function renameScheduleSet(){const s=_activeSet();if(!s)return;const n=prompt('שם חדש לסמסטר:',s.name);if(!n||!n.trim())return;s.name=n.trim();saveDB();renderSchedEditor();}
-function deleteScheduleSet(){if((DB.scheduleSets||[]).length<=1){alert('לא ניתן למחוק — חייבת להישאר מערכת שעות אחת לפחות.');return;}const s=_activeSet();if(!s)return;if(!confirm('למחוק את הסמסטר "'+s.name+'"?\nמערכת השעות שלו תימחק. (ימי-לימוד שכבר הוזנו נשמרים בנפרד ולא יושפעו.)'))return;DB.scheduleSets=DB.scheduleSets.filter(x=>x.id!==s.id);const nx=DB.scheduleSets[0];DB.activeScheduleId=nx.id;DB.schedule=nx.data;saveDB();renderSchedEditor();}
+function deleteScheduleSet(){if((DB.scheduleSets||[]).length<=1){alert('לא ניתן למחוק — חייבת להישאר מערכת שעות אחת לפחות.');return;}const s=_activeSet();if(!s)return;if(!confirm('למחוק את הסמסטר "'+s.name+'"?\nמערכת השעות שלו תימחק. (ימי-לימוד שכבר הוזנו נשמרים בנפרד ולא יושפעו.)'))return;DB.scheduleSets=DB.scheduleSets.filter(x=>x.id!==s.id);const nx=DB.scheduleSets[0];_setActiveSem(nx.id);DB.schedule=nx.data;saveDB();renderSchedEditor();}
 function _semRank(n){n=n||'';if(/קיץ/.test(n))return 3;if(/א['׳]/.test(n)||/סמסטר\s*א/.test(n))return 1;if(/ב['׳]/.test(n)||/סמסטר\s*ב/.test(n))return 2;return 2.5;}
 function _schedSetBar(){const sets=(DB.scheduleSets||[]).slice().sort((a,b)=>_semRank(a.name)-_semRank(b.name)||String(a.name||'').localeCompare(String(b.name||''),'he'));return `<div class="card" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13.5px;font-weight:600">📅 סמסטר פעיל:</span><select style="font-size:14px;padding:4px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500;cursor:pointer" onchange="switchScheduleSet(this.value)">${sets.map(s=>`<option value="${escH(s.id)}"${s.id===DB.activeScheduleId?' selected':''}>${escH(s.name)}</option>`).join('')}</select><button class="btn btn-sm btn-g" onclick="newScheduleSet()">+ סמסטר חדש</button><button class="btn btn-sm" onclick="renameScheduleSet()">✎ שנה שם</button><button class="btn btn-sm" onclick="deleteScheduleSet()" style="color:#A32D2D">🗑 מחק</button><button data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:13px;font-weight:600;padding:5px 16px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer;margin-right:auto" title="שמירה מיידית של מערכת השעות בענן">💾 שמירה</button><span style="font-size:12.5px;color:var(--color-text-tertiary);flex-basis:100%;margin-top:2px">הרישום היומי משתמש בסמסטר הפעיל. מעבר בין סמסטרים אינו מוחק — ימי-לימוד שכבר הוזנו נשמרים בנפרד. לחיצה על "שמירה" מוודאת שהמערכת נקלטה בענן.</span></div>`;}
 var _schedShownHash=null;
