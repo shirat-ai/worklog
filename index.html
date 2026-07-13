@@ -569,6 +569,8 @@ const EMAILJS_READY = ()=>typeof emailjs!=='undefined'&&EMAILJS_PUBLIC_KEY!=='YO
 let _fbSaveTimer = null;
 let _fbListening = false;
 let _fbIgnoreNext = false;
+let _loadOK = false;          // true רק אחרי טעינה מוצלחת מהשרת — לפני כן כל כתיבה חסומה (מונע דחיפת ברירת-מחדל)
+let _lastWrittenRev = 0;      // ה-rev של הכתיבה האחרונה שלנו — לזיהוי-הד מדויק ב-listener (לא לדרוס עדכון חדש של אחר)
 // צל של מצב-השרת הידוע (JSON פר-מפתח-עליון). שמירה כותבת רק מפתחות ש**המכשיר הזה** שינה
 // מאז הסנכרון האחרון — כדי שפעולה על אוסף אחד (תשלום/תזכורת) לא תדרוס אוסף אחר (ימים/אישורים)
 // שמכשיר ישן לא ראה. codes אף פעם לא נכתב בשמירה מלאה (רק ב-saveCode).
@@ -598,7 +600,9 @@ function _mergeKey(key, serverVal, shadowStr, myVal){
     return _out.slice(0,500);
   }
   let shadowVal; try{ shadowVal=(shadowStr!==undefined)?JSON.parse(shadowStr):undefined; }catch(e){ shadowVal=undefined; }
-  if(Array.isArray(myVal) && myVal.length && myVal.every(x=>x&&x.id!==undefined)){
+  var _isIdArr=function(a){ return Array.isArray(a)&&a.length&&a.every(function(x){return x&&x.id!==undefined;}); };
+  // מערך-לפי-id: זהה גם אם myVal רוקן מקומית — לפי מבנה הצל/שרת. מונע דריסת-מערך-ריק (מחיקה מקרית של הכל).
+  if(Array.isArray(myVal) && (myVal.length ? myVal.every(x=>x&&x.id!==undefined) : (_isIdArr(shadowVal)||_isIdArr(serverVal)))){
     const server=Array.isArray(serverVal)?serverVal.slice():[];
     const shadowArr=Array.isArray(shadowVal)?shadowVal:[];
     const shadowById=new Map(shadowArr.map(x=>[x&&x.id, JSON.stringify(x)]));
@@ -619,13 +623,29 @@ function _mergeKey(key, serverVal, shadowStr, myVal){
 }
 function _pushDirty(attempt){
   attempt=attempt||0;
+  // חוסם-אב: אין לכתוב לפני שטעינה מהשרת הצליחה — אחרת ברירת-המחדל הקשיחה (עובדים/שעות ריקים) תידחף מעל הנתונים החיים.
+  if(!_loadOK){ console.warn('_pushDirty נחסם — טעינה טרם הושלמה'); _fbIgnoreNext=false; return Promise.resolve(); }
   const {payload,keys}=_computeDirty();
   if(!keys.length){ if(!attempt)_fbIgnoreNext=false; return Promise.resolve(); }
+  // חוסם דריסת-אוסף: אוסף-מוגן שרוקן (≥2→0) = כמעט תמיד מחיקה מקרית → שחזר מהצל, אל תדחוף את הריקון.
+  var _reverted=false;
+  for(var _i=keys.length-1;_i>=0;_i--){ var _k=keys[_i];
+    if(_PROT_ARR.indexOf(_k)<0) continue;
+    var _after=Array.isArray(DB[_k])?DB[_k]:[]; var _before; try{ _before=JSON.parse(_dbShadow[_k]||'[]'); }catch(e){ _before=[]; }
+    if(Array.isArray(_before)&&_before.length>=2&&_after.length===0){
+      console.warn('חסימת דריסה: '+_k+' '+_before.length+'→0 — משוחזר מהצל, לא נדחף');
+      try{ _maybeBackup(true); }catch(e){}
+      DB[_k]=_before; delete payload[_k]; keys.splice(_i,1); _reverted=true;
+    }
+  }
+  if(_reverted){ try{ _rerenderCurrentPage(); }catch(e){} }
+  if(!keys.length){ _fbIgnoreNext=false; return Promise.resolve(); }
   const rev=(_serverRev||0)+1; payload._rev=rev;
   const oldShadow={}, myVals={}; keys.forEach(k=>{ oldShadow[k]=_dbShadow[k]; myVals[k]=DB[k]; });
   return fbDB.ref(FB_PATH).update(payload).then(()=>{
-    keys.forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} });
-    _serverRev=rev;
+    // הצל = מה שנדחף בפועל (payload), לא DB החי — אחרת עריכה שקרתה בזמן הכתיבה נרשמת כ"נשמרה" אך אובדת.
+    keys.forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(payload[k]); }catch(e){} });
+    _serverRev=rev; _lastWrittenRev=rev;
     _mirrorLocal();                          // מראה מקומי = מצב-שרת מאושר
     try{ _maybeBackup(); }catch(e){}         // שכבה 6: גיבוי מתגלגל (מווסת ל-3 דק')
   }).catch(err=>{
@@ -776,7 +796,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260731;
+const APP_VERSION = 20260732;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -2890,11 +2910,14 @@ function loadDB() {
   const loader = document.getElementById('fb-loader');
   if (loader) loader.style.display = 'flex';
   fbDB.ref(FB_PATH).once('value').then(snap => {
-    _applySnapshot(snap.val());
+    const _sv=snap.val();
+    _applySnapshot(_sv);
+    if(!_sv) _snapshotShadow();             // שרת ריק (DB חדש) — קבע צל-בסיס כדי שהזריעה תהיה תקינה
+    _loadOK = true;                          // ✅ טעינה הצליחה — מעכשיו מותר לכתוב
     try{ var _rc=_restoreFromMirror(); if(_rc)console.warn('טעינה: שוחזרו',_rc,'רשומות שלא נשמרו מרענון קודם'); }catch(e){} // שכבה 2
     try{ _maybeBackup(true); }catch(e){}   // שכבה 6: גיבוי-פתיחה
     // אם צומת codes חסר בענן (DB חדש/שוחזר) — זרע פעם אחת, אחרת saveDB לא יכתוב codes לעולם
-    const _sv=snap.val();if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
+    if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
     _checkAppVersion(_sv&&_sv.appVersion);
     fbDB.ref(FB_PATH+'/appVersion').on('value',s=>_checkAppVersion(s.val())); // טאב ישן → טעינה מחדש אוטומטית
     _setLecturerEmails();
@@ -2903,9 +2926,10 @@ function loadDB() {
     setTimeout(checkAutoReminders, 2000);
     _startListener();
   }).catch(e => {
-    if (loader) loader.style.display = 'none';
     console.error('Firebase load:', e);
-    alert('שגיאה בטעינת הנתונים. בדוק חיבור אינטרנט.');
+    // קריטי: טעינה נכשלה → _loadOK נשאר false → כל כתיבה חסומה (לא נדחוף ברירת-מחדל מעל נתונים חיים). ננסה שוב.
+    if (loader) { const m=loader.querySelector('#fb-loader-msg'); if(m)m.textContent='מתחבר לשרת… ('+e.code+') — מנסה שוב'; }
+    setTimeout(loadDB, 3000);
   });
 }
 
@@ -2977,14 +3001,14 @@ function _startListener() {
   if (_fbListening) return;
   _fbListening = true;
   fbDB.ref(FB_PATH).on('value', snap => {
-    // אם השינוי הגיע מהכתיבה שלנו — מתעלמים
-    if (_fbIgnoreNext) {
-      setTimeout(function(){ _fbIgnoreNext = false; }, 2000);
-      return;
-    }
-    // שכבה 3: עדכון נכנס ממכשיר אחר — לא לדרוס עבודה מקומית שטרם נשמרה. מזגים מפתחות-מלוכלכים אחרי החלת השרת.
     var server = snap.val() || {};
+    var srev = (typeof server._rev==='number') ? server._rev : _serverRev;
     var _d = _computeDirty();
+    // מבוסס-rev: אם ה-rev לא התקדם מעבר למה שידוע לנו ואין עריכה מקומית ממתינה — אין עדכון-נתונים אמיתי.
+    // מכסה: הד-הכתיבה-שלנו, וגם רעש presence/גיבויים (שאינם מעדכנים _rev). לא מפספס עדכון-נתונים אמיתי של מכשיר אחר.
+    if (!_d.keys.length && srev <= _serverRev) return;
+    _fbIgnoreNext = false;
+    // שכבה 3: עדכון נכנס ממכשיר אחר — לא לדרוס עבודה מקומית שטרם נשמרה. מזגים מפתחות-מלוכלכים אחרי החלת השרת.
     var _os = {}, _mv = {};
     _d.keys.forEach(function(k){ _os[k]=_dbShadow[k]; _mv[k]=DB[k]; });
     _applySnapshot(server);
@@ -3473,7 +3497,14 @@ function importBackup(input){
         +'\u05e6\u05d5\u05d5\u05ea \u05de\u05e0\u05d4\u05dc\u05d9: '+(d2.adminStaff||[]).length+'\n\n'
         +'\u05d9\u05d9\u05d1\u05d5\u05d0 \u05d9\u05d7\u05dc\u05d9\u05e3 \u05d0\u05ea \u05db\u05dc \u05d4\u05e0\u05ea\u05d5\u05e0\u05d9\u05dd \u05d4\u05e7\u05d9\u05d9\u05de\u05d9\u05dd. \u05dc\u05d4\u05de\u05e9\u05d9\u05da?';
       if(!confirm(summary))return;
-      ['codes','lecturers','students','days','privateLessons','quotas','groups','schedule','payOverrides','payStatuses','miscPayments','activityLog','payNotes','messages','adminStaff','adminHours','ganttPlanned','lockedMonths'].forEach(k=>{if(data.DB[k]!==undefined)DB[k]=data.DB[k];});
+      var _skipped=[];
+      ['codes'].concat(_BACKUP_KEYS).forEach(k=>{
+        if(data.DB[k]===undefined)return;
+        // הגנה: אל תתן לאוסף-מוגן ריק בקובץ לדרוס נתונים קיימים (ייבוא חלקי/ישן). דלג ואזהר.
+        if(_PROT_ARR.indexOf(k)>=0 && Array.isArray(data.DB[k]) && data.DB[k].length===0 && Array.isArray(DB[k]) && DB[k].length>=2){ _skipped.push(k); return; }
+        DB[k]=data.DB[k];
+      });
+      if(_skipped.length && !confirm('שים לב: בקובץ הגיבוי ריקים השדות: '+_skipped.join(', ')+'.\nהם לא יידרסו (נשמרו הנתונים הקיימים). להמשיך?')){ return; }
       saveDB();
       const msg=document.getElementById('backup-msg');
       const restoreSummary='\u2713 \u05d2\u05d9\u05d1\u05d5\u05d9 \u05d9\u05d5\u05d1\u05d0 \u2014 '+expDate+' | \u05de\u05e8\u05e6\u05d9\u05dd: '+(DB.lecturers||[]).length+' | \u05d9\u05de\u05d9\u05dd: '+(DB.days||[]).length;
