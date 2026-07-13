@@ -688,7 +688,7 @@ window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260726;
+const APP_VERSION = 20260727;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){ if(!sessionStorage.getItem('sh_rlv'+v)){ sessionStorage.setItem('sh_rlv'+v,'1'); location.reload(); } return; }
@@ -2841,8 +2841,16 @@ function _applySnapshot(p) {
   }
   var _act = DB.scheduleSets.find(function(s){return s.id===DB.activeScheduleId;}) || DB.scheduleSets[0];
   DB.activeScheduleId = _act.id;
-  _act.data = DB.schedule || _act.data || {};   // DB.schedule (מה שנטען/הרישום משתמש בו) = האמת לסמסטר הפעיל
-  DB.schedule = _act.data;                        // הפניה משותפת — עריכות ל-DB.schedule = עריכות לסמסטר הפעיל
+  if (DB.scheduleSets.length > 1) {
+    // מרובה-סמסטרים: ה-data של הסמסטר הפעיל הוא מקור-האמת — לא node ה-schedule הישן (חריץ יחיד משותף).
+    // אחרת מכשיר עם סמסטר-פעיל אחר (או top-level מיושן) דרס את מערכת-הקיץ בטעינה → "לא מצליח למחוק בקיץ".
+    if (!_act.data || typeof _act.data !== 'object') _act.data = (DB.schedule && typeof DB.schedule==='object') ? DB.schedule : {};
+    DB.schedule = _act.data;
+  } else {
+    // סמסטר יחיד (כולל מיגרציה מגרסה ישנה שכתבה רק top-level schedule): schedule ברמה-העליונה יכול לנצח.
+    _act.data = DB.schedule || _act.data || {};
+    DB.schedule = _act.data;
+  }
   _snapshotShadow(); // הצל = מצב-השרת שזה עתה נטען/סונכרן → שמירות עתידיות כותבות רק דלתא מקומית
 }
 
