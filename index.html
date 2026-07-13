@@ -478,6 +478,11 @@ tr.drag-over td{border-top:2px solid #10717E}
               </div>
               <div id="backup-last" style="font-size:12.5px;color:var(--color-text-tertiary);margin-top:4px"></div>
             </div>
+            <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:6px;padding-top:8px">
+              <p style="font-size:13.5px;color:var(--color-text-secondary);margin-bottom:5px">☁️ <b>גיבויי-ענן אוטומטיים</b> — המערכת מגבה את עצמה אוטומטית לענן ברקע (עד 40 נקודות-שחזור). אם נתונים נמחקו — ניתן לשחזר לכל נקודה.</p>
+              <button class="btn btn-sm btn-p" onclick="showCloudBackups()">☁️ שחזור מגיבוי-ענן</button>
+              <div id="cloud-backup-list" style="margin-top:6px"></div>
+            </div>
           </div>
         </div>
         <div class="card" id="active-users-card" style="display:none"><div class="ct" style="display:flex;align-items:center;justify-content:space-between"><span>👥 משתמשים פעילים כרגע</span><button class="btn btn-sm" onclick="renderActivePanel()" title="רענן">↻</button></div>
@@ -613,6 +618,8 @@ function _pushDirty(attempt){
   return fbDB.ref(FB_PATH).update(payload).then(()=>{
     keys.forEach(k=>{ try{ _dbShadow[k]=JSON.stringify(DB[k]); }catch(e){} });
     _serverRev=rev;
+    _mirrorLocal();                          // מראה מקומי = מצב-שרת מאושר
+    try{ _maybeBackup(); }catch(e){}         // שכבה 6: גיבוי מתגלגל (מווסת ל-3 דק')
   }).catch(err=>{
     const denied=/permission|denied/i.test(((err&&err.code)||'')+((err&&err.message)||''));
     if(denied && attempt<6){
@@ -633,7 +640,13 @@ function _onWriteRejected(err){
   const info=((err&&err.code)||'')+' '+((err&&err.message)||'');
   console.warn('Firebase write rejected — re-syncing:', info);
   if(!/permission|denied/i.test(info))return; // רשת זמנית → תור אוטומטי; רק דחיית-הרשאה = כתיבה מיושנת
-  fbDB.ref(FB_PATH).once('value').then(s=>{ _applySnapshot(s.val()); _rerenderCurrentPage(); }).catch(()=>{});
+  // שכבה 4: אל תדרוס עבודה מקומית לא-שמורה גם במסלול-הכשל האחרון — מזג ושמור אותה בחזרה.
+  var _d=_computeDirty(); var _os={},_mv={}; _d.keys.forEach(function(k){_os[k]=_dbShadow[k];_mv[k]=DB[k];});
+  fbDB.ref(FB_PATH).once('value').then(s=>{
+    var server=s.val()||{}; _applySnapshot(server);
+    if(_d.keys.length){ _d.keys.forEach(function(k){ DB[k]=_mergeKey(k,server[k],_os[k],_mv[k]); }); saveDB(); }
+    _rerenderCurrentPage();
+  }).catch(()=>{});
   const now=Date.now();
   if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('⚠️ הנתונים עודכנו ממכשיר אחר והמסך רוענן.\nאם ביצעת שינוי כרגע — ודא/י שנקלט, וחזור/י עליו אם צריך.'); }catch(e){} }
 }
@@ -683,12 +696,79 @@ function renderActivePanel(){
     }).join('')+(anyOld?'<div style="font-size:12.5px;color:#A32D2D;padding:5px 6px">⚠ יש מכשיר על גרסה ישנה — כדאי לרענן אותו (Ctrl+F5).</div>':'');
   }).catch(()=>{ el.innerHTML='<div style="font-size:13.5px;color:#A32D2D;padding:6px">שגיאת טעינה — ודא/י שחוק ה-/presence פורסם ב-Firebase.</div>'; });
 }
-function _flushPending(){ try{ clearTimeout(_fbSaveTimer); _pushDirty(); }catch(e){} }
+function _flushPending(){ try{ _mirrorLocal(); clearTimeout(_fbSaveTimer); _pushDirty(); }catch(e){} }
 window.addEventListener('beforeunload',_flushPending);
 window.addEventListener('pagehide',_flushPending);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden')_flushPending(); });
+
+// ═══ הגנת-נתונים רב-שכבתית (אין-אובדן) ═══════════════════════════════════════════
+// אוספי-רשומות מוגנים (מערכים לפי id) — עליהם חלים המראה-המקומי, השחזור ושומר-המחיקות.
+var _PROT_ARR = ['lecturers','students','days','privateLessons','adminStaff','miscPayments','manualPayments','manualPayees','ganttPlanned'];
+// כל המפתחות ששווים גיבוי (רשומות + מפות-נתונים; לא codes/סיסמאות).
+var _BACKUP_KEYS = ['lecturers','students','days','privateLessons','quotas','groups','schedule','scheduleSets','activeScheduleId','payOverrides','payStatuses','miscPayments','payNotes','messages','adminStaff','adminHours','adminHoursStatus','ganttPlanned','lockedMonths','payDoneDates','manualPayments','manualPayees','activityLog'];
+
+// שכבה 2: מראה סנכרוני ל-localStorage בכל שינוי — שורד רענון/סגירה בתוך חלון ה-debounce (כתיבת-הרשת האסינכרונית לא מספיקה).
+function _mirrorLocal(){ try{ if(typeof DB==='undefined'||!DB)return; localStorage.setItem('sh_dbmirror', JSON.stringify({rev:_serverRev,at:Date.now(),db:DB})); }catch(e){} }
+
+// שכבה 2 (המשך): בטעינה — אם המראה עדכני והמכשיר לא פיגר אחרי השרת, החזר רשומות שנוספו מקומית ולא נשמרו (id שאין בשרת).
+function _restoreFromMirror(){
+  try{
+    var raw=localStorage.getItem('sh_dbmirror'); if(!raw)return 0;
+    var m=JSON.parse(raw); if(!m||!m.db)return 0;
+    if(Date.now()-(m.at||0) > 30*60000) return 0;         // ישן מדי (>30 דק')
+    if((m.rev||0) < (_serverRev||0)) return 0;             // מכשיר אחר התקדם מאז → אל תחזיר (ייתכן שנמחק במכוון)
+    var restored=0, hitKeys={};
+    _PROT_ARR.forEach(function(k){
+      var mine=Array.isArray(m.db[k])?m.db[k]:[]; if(!mine.length)return;
+      var srv=Array.isArray(DB[k])?DB[k].slice():[];
+      var srvIds={}; srv.forEach(function(x){ if(x&&x.id!==undefined)srvIds[x.id]=1; });
+      mine.forEach(function(rec){ if(rec&&rec.id!==undefined&&!srvIds[rec.id]){ srv.push(rec); restored++; hitKeys[k]=(hitKeys[k]||0)+1; } });
+      DB[k]=srv;
+    });
+    if(restored){ console.warn('שוחזרו',restored,'רשומות מגיבוי-מקומי:',hitKeys); try{ _maybeBackup(true); }catch(e){} saveDB(); }
+    return restored;
+  }catch(e){ return 0; }
+}
+
+// שכבה 6: גיבויים אוטומטיים מתגלגלים ב-Firebase (/backups). ניתן-לשחזור תמיד. חסין מכל וקטור בלתי-צפוי.
+var _lastBackupAt=0;
+function _maybeBackup(force){
+  try{
+    if(typeof fbDB==='undefined'||!fbDB)return;
+    var now=Date.now();
+    if(!force && now-_lastBackupAt < 180000) return;      // אחת ל-3 דק' לכל היותר (למעט force)
+    _lastBackupAt=now;
+    var snap={}; _BACKUP_KEYS.forEach(function(k){ if(DB[k]!==undefined&&DB[k]!==null)snap[k]=DB[k]; });
+    var id='b'+now;
+    fbDB.ref(FB_PATH+'/backups/'+id).set({at:now,rev:(_serverRev||0),by:(typeof currentRole!=='undefined'&&currentRole)||'—',db:snap})
+      .then(function(){ _pruneBackups(); }).catch(function(){}); // נדחה עד שדוד יפרסם חוק /backups — לא מפריע
+  }catch(e){}
+}
+function _pruneBackups(){
+  try{
+    fbDB.ref(FB_PATH+'/backups').once('value').then(function(s){
+      var b=s.val()||{}; var ids=Object.keys(b).sort(); var KEEP=40;
+      if(ids.length>KEEP) ids.slice(0,ids.length-KEEP).forEach(function(id){ fbDB.ref(FB_PATH+'/backups/'+id).remove().catch(function(){}); });
+    }).catch(function(){});
+  }catch(e){}
+}
+// שכבה 5: שומר-מחיקות. אם שמירה עומדת למחוק אוסף שלם (אורך>0 → 0) או לצמצם דרסטית — גיבוי-חובה של המצב-הקודם קודם.
+function _deletionGuard(){
+  try{
+    _PROT_ARR.forEach(function(k){
+      var shadowStr=_dbShadow[k]; if(!shadowStr)return;
+      var before; try{ before=JSON.parse(shadowStr); }catch(e){ return; }
+      if(!Array.isArray(before)||!before.length)return;
+      var after=Array.isArray(DB[k])?DB[k]:[];
+      if(after.length===0 || after.length < before.length*0.5){  // התרוקנות/צמצום >50%
+        console.warn('שומר-מחיקות: '+k+' '+before.length+'→'+after.length+' — מגבה מצב קודם');
+        _maybeBackup(true);
+      }
+    });
+  }catch(e){}
+}
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260728;
+const APP_VERSION = 20260729;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -707,6 +787,8 @@ function _checkAppVersion(remote){
 function saveDB() {
   clearTimeout(_fbSaveTimer);
   _fbIgnoreNext = true; // ignore immediately to prevent listener override during debounce
+  try { _deletionGuard(); } catch(e) {}   // שכבה 5: גבה מצב-קודם אם עומדים לצמצם אוסף דרסטית
+  _mirrorLocal();                          // שכבה 2: מראה סנכרוני מיידי — שורד רענון בתוך חלון ה-debounce
   _fbSaveTimer = setTimeout(() => {
     try { _pushDirty(); }
     catch(e) { console.error('Firebase save:', e); _fbIgnoreNext = false; }
@@ -2801,6 +2883,8 @@ function loadDB() {
   if (loader) loader.style.display = 'flex';
   fbDB.ref(FB_PATH).once('value').then(snap => {
     _applySnapshot(snap.val());
+    try{ var _rc=_restoreFromMirror(); if(_rc)console.warn('טעינה: שוחזרו',_rc,'רשומות שלא נשמרו מרענון קודם'); }catch(e){} // שכבה 2
+    try{ _maybeBackup(true); }catch(e){}   // שכבה 6: גיבוי-פתיחה
     // אם צומת codes חסר בענן (DB חדש/שוחזר) — זרע פעם אחת, אחרת saveDB לא יכתוב codes לעולם
     const _sv=snap.val();if(!_sv||!_sv.codes)fbDB.ref(FB_PATH+'/codes').update(DB.codes);
     _checkAppVersion(_sv&&_sv.appVersion);
@@ -2890,7 +2974,17 @@ function _startListener() {
       setTimeout(function(){ _fbIgnoreNext = false; }, 2000);
       return;
     }
-    _applySnapshot(snap.val());
+    // שכבה 3: עדכון נכנס ממכשיר אחר — לא לדרוס עבודה מקומית שטרם נשמרה. מזגים מפתחות-מלוכלכים אחרי החלת השרת.
+    var server = snap.val() || {};
+    var _d = _computeDirty();
+    var _os = {}, _mv = {};
+    _d.keys.forEach(function(k){ _os[k]=_dbShadow[k]; _mv[k]=DB[k]; });
+    _applySnapshot(server);
+    if (_d.keys.length) {
+      _d.keys.forEach(function(k){ DB[k] = _mergeKey(k, server[k], _os[k], _mv[k]); });
+      console.warn('שכבה 3: מוזגו', _d.keys.length, 'מפתחות מקומיים לא-שמורים אחרי עדכון נכנס:', _d.keys);
+      saveDB(); // שמור בחזרה את העבודה המקומית המשומרת
+    }
     // רענון הדף הנוכחי בלבד
     if (currentRole) {
       try {
@@ -4697,6 +4791,32 @@ function exportPayroll(){const month=document.getElementById('m-month').value;co
 function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
 function saveBackupEmail(){const v=(document.getElementById('backup-email').value||'').trim();if(v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){alert('כתובת מייל לא תקינה');return;}DB.backupEmail=v||BACKUP_EMAIL_DEFAULT;saveDB();_initBackupUI();alert('נמען הגיבוי עודכן: '+DB.backupEmail);}
 function _initBackupUI(){const e=document.getElementById('backup-email');if(e)e.value=DB.backupEmail||BACKUP_EMAIL_DEFAULT;const l=document.getElementById('backup-last');if(l)l.textContent=DB.lastWeeklyBackup?('גיבוי אחרון נשלח: '+new Date(DB.lastWeeklyBackup).toLocaleString('he-IL')):'טרם נשלח גיבוי שבועי';}
+// ☁️ שחזור מגיבויי-ענן אוטומטיים (/backups). למנהל בלבד.
+function showCloudBackups(){
+  var el=document.getElementById('cloud-backup-list'); if(!el)return;
+  el.innerHTML='<div style="font-size:13px;color:var(--color-text-tertiary)">טוען…</div>';
+  fbDB.ref(FB_PATH+'/backups').once('value').then(function(s){
+    var b=s.val()||{}; var ids=Object.keys(b).sort().reverse();
+    if(!ids.length){ el.innerHTML='<div style="font-size:12.5px;color:var(--color-text-tertiary)">אין עדיין גיבויי-ענן. הם נוצרים אוטומטית בכל שמירה (דורש פרסום חוק /backups ב-Firebase).</div>'; return; }
+    var roleLbl={teacher:'מרצה',coord_m:'רכז',coord_w:'רכזת',principal:'מנהל',office:'משרד',staff:'צוות'};
+    el.innerHTML=ids.slice(0,40).map(function(id){var x=b[id]||{};var d=new Date(x.at||0);var L=(x.db&&x.db.lecturers?x.db.lecturers.length:'?');var D=(x.db&&x.db.days?x.db.days.length:'?');var S=(x.db&&x.db.adminStaff?x.db.adminStaff.length:'?');return '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 8px;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12.5px"><span>'+d.toLocaleString('he-IL')+' · '+(roleLbl[x.by]||x.by||'—')+' <span style="color:var(--color-text-tertiary)">('+L+' מרצים · '+D+' ימים · '+S+' צוות)</span></span><button class="btn btn-sm" style="color:#10717E;font-weight:600" onclick="restoreCloudBackup(\''+escH(id)+'\')">שחזר</button></div>';}).join('');
+  }).catch(function(){ el.innerHTML='<div style="font-size:12.5px;color:#A32D2D">שגיאת טעינה — ודא/י שחוק /backups פורסם ב-Firebase.</div>'; });
+}
+function restoreCloudBackup(id){
+  if(currentRole!=='principal'){alert('שחזור מותר למנהל בלבד');return;}
+  if(!confirm('לשחזר את המערכת לנקודת-גיבוי זו?\n\nהנתונים הנוכחיים יוחלפו בתוכן הגיבוי.\n(המצב הנוכחי מגובה אוטומטית לפני השחזור — ניתן לחזור אליו.)'))return;
+  fbDB.ref(FB_PATH+'/backups/'+id).once('value').then(function(s){
+    var bk=s.val(); if(!bk||!bk.db){alert('גיבוי לא נמצא');return;}
+    _maybeBackup(true); // גבה את המצב הנוכחי (undo) לפני השחזור
+    setTimeout(function(){
+      _BACKUP_KEYS.forEach(function(k){ if(bk.db[k]!==undefined)DB[k]=bk.db[k]; });
+      try{ logAction('שחזור מגיבוי-ענן', new Date(bk.at||0).toLocaleString('he-IL')); }catch(e){}
+      saveDB();
+      alert('✓ שוחזר בהצלחה. המערכת תיטען מחדש.');
+      Promise.resolve(_pushDirty()).then(function(){location.reload();},function(){location.reload();});
+    }, 900);
+  }).catch(function(){ alert('שגיאה בשחזור'); });
+}
 function saveAnthropicKey(){const inp=document.getElementById('anthropic-key-input');const val=(inp.value||'').trim();if(!val.startsWith('sk-ant-')){alert('מפתח לא תקין — צריך להתחיל ב-sk-ant-');return;}localStorage.setItem('_ak',val);inp.value='';const st=document.getElementById('anthropic-key-status');if(st){st.textContent='✓ מפתח נשמר';st.style.color='#3B6D11';}}
 function getAnthropicKey(){return localStorage.getItem('_ak')||'';}
 function addLecturer(){const n=document.getElementById('nl-n').value.trim();if(!n)return;DB.lecturers.push({id:_uid('l'),name:n,track:document.getElementById('nl-t').value,rate:parseInt(document.getElementById('nl-r').value)||0,ratePriv:parseInt(document.getElementById('nl-rp').value)||0,travel:parseInt(document.getElementById('nl-tr').value)||0,management:parseInt(document.getElementById('nl-mg').value)||0,type:document.getElementById('nl-type').value,bank:document.getElementById('nl-bank').value,email:(document.getElementById('nl-email')?.value||'').trim(),phone:(document.getElementById('nl-phone')?.value||'').trim()});saveDB();renderSettings();['nl-n','nl-r','nl-rp','nl-tr','nl-mg','nl-bank','nl-email','nl-phone'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});}
