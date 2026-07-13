@@ -340,6 +340,7 @@ tr.drag-over td{border-top:2px solid #10717E}
       <span>דיווח שעות — צוות מנהלי</span>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <select id="staff-report-sel" style="font-size:14px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500" onchange="onStaffPick()"></select>
+        <button onclick="openStaffSelfAdd()" style="font-size:13.5px;font-weight:600;padding:6px 12px;border:0.5px solid #10717E;border-radius:8px;background:var(--color-background-primary);color:#10717E;cursor:pointer" title="אם שמך לא מופיע ברשימה — הוסף/י את עצמך">➕ הוסף עובד חדש</button>
         <select id="staff-report-month" style="font-size:14px;padding:5px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary)" onchange="renderStaffReport()"></select>
         <button id="btn-save-staff" data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:14px;font-weight:600;padding:6px 18px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer" title="שמירה מיידית של השעות שהזנת">💾 שמירה</button>
       </div>
@@ -796,7 +797,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260732;
+const APP_VERSION = 20260733;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -1488,6 +1489,51 @@ function renderAdminHours(){
 // כניסה משותפת → בחירת-שם → דיווח החודש הנוכחי + הקודם בלבד
 // ══════════════════════════════════════════════
 let _staffRepSid=null,_staffRepMonth=null;
+// הוספה-עצמית של עובד צוות מנהלי (למקרה ששמו לא מופיע). כל פרטי-העובד מלבד שכר-שעה (שנקבע ע"י המנהל).
+function openStaffSelfAdd(){
+  if(document.getElementById('staff-self-modal'))return;
+  var ov=document.createElement('div'); ov.id='staff-self-modal';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML='<div style="background:var(--color-background-primary);border-radius:14px;max-width:420px;width:100%;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,0.3);max-height:90vh;overflow:auto">'
+    +'<div style="font-size:18px;font-weight:800;color:var(--color-text-primary);margin-bottom:4px">הוספת עובד חדש</div>'
+    +'<div style="font-size:13px;color:var(--color-text-tertiary);margin-bottom:14px">מלא/י את פרטיך. שכר-השעה ייקבע ע"י המנהל.</div>'
+    +'<div style="display:flex;flex-direction:column;gap:10px">'
+    +'<div><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">שם מלא *</label><input id="ss-name" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)" placeholder="שם העובד"></div>'
+    +'<div><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">סוג</label><select id="ss-type" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)"><option value="employee">שכיר</option><option value="freelance_vat">עוסק מורשה</option><option value="freelance_exempt">עוסק פטור</option></select></div>'
+    +'<div><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">אימייל</label><input id="ss-email" type="email" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)" placeholder="name@example.com"></div>'
+    +'<div style="display:flex;gap:8px"><div style="flex:1"><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">בנק</label><input id="ss-bank" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)" placeholder="שם/מס׳"></div>'
+    +'<div style="width:70px"><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">סניף</label><input id="ss-branch" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)"></div>'
+    +'<div style="flex:1"><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">חשבון</label><input id="ss-acc" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)"></div></div>'
+    +'<div style="width:130px"><label style="font-size:13px;font-weight:600;color:var(--color-text-secondary);display:block;margin-bottom:3px">נסיעות ליום (₪)</label><input id="ss-travel" type="number" step="0.5" style="width:100%;font-size:14px;padding:7px 9px;border:0.5px solid var(--color-border-secondary);border-radius:7px;background:var(--color-background-primary);color:var(--color-text-primary)" placeholder="0"></div>'
+    +'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+    +'<button onclick="closeStaffSelfAdd()" style="font-size:14px;padding:8px 16px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer">ביטול</button>'
+    +'<button onclick="submitStaffSelfAdd()" style="font-size:14px;font-weight:600;padding:8px 20px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer">הוסף</button>'
+    +'</div></div>';
+  ov.addEventListener('click',function(e){ if(e.target===ov)closeStaffSelfAdd(); });
+  document.body.appendChild(ov);
+  var n=document.getElementById('ss-name'); if(n)n.focus();
+}
+function closeStaffSelfAdd(){ var m=document.getElementById('staff-self-modal'); if(m)m.remove(); }
+function submitStaffSelfAdd(){
+  var name=(document.getElementById('ss-name').value||'').trim();
+  if(!name){ alert('יש להזין שם'); return; }
+  var existing=(DB.adminStaff||[]).find(function(s){return (s.name||'').trim()===name;});
+  if(existing){ if(!confirm('עובד בשם "'+name+'" כבר קיים. להשתמש בקיים במקום להוסיף חדש?')){ } else { closeStaffSelfAdd(); initStaffReport(); var sel=document.getElementById('staff-report-sel'); if(sel){sel.value=existing.id;renderStaffReport();} return; } }
+  var bank=[document.getElementById('ss-bank').value||'',document.getElementById('ss-branch').value||'',document.getElementById('ss-acc').value||''].map(function(x){return String(x).trim();}).filter(Boolean).join('/');
+  var email=(document.getElementById('ss-email').value||'').trim();
+  if(email&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ alert('כתובת אימייל לא תקינה'); return; }
+  if(!DB.adminStaff)DB.adminStaff=[];
+  var rec={ id:_uid('as_'), name:name, rate:0, travel:parseFloat(document.getElementById('ss-travel').value)||0, type:document.getElementById('ss-type').value||'employee', bank:bank, email:email };
+  DB.adminStaff.push(rec);
+  try{ logAction('הוספת עובד (צוות מנהלי)', name); }catch(e){}
+  saveDB();
+  closeStaffSelfAdd();
+  initStaffReport();
+  var sel=document.getElementById('staff-report-sel'); if(sel){ sel.value=rec.id; renderStaffReport(); }
+  try{ flushSaveNow && flushSaveNow(); }catch(e){}
+  alert('✓ נוסף בהצלחה. שכר-השעה ייקבע ע"י המנהל. כעת ניתן לדווח שעות.');
+}
 function initStaffReport(){
   const sel=document.getElementById('staff-report-sel');
   const msel=document.getElementById('staff-report-month');
