@@ -797,7 +797,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260738;
+const APP_VERSION = 20260739;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3033,7 +3033,15 @@ function _applySnapshot(p) {
   // כל סט חייב אובייקט data. Firebase משמיט {} ריק, אז לסמסטר ריק אין כלל שדה data בטעינה.
   // קריטי: אסור למלא סמסטר ריק ב-DB.schedule — כי כשה-schedule ברמה-העליונה חסר (Firebase השמיט),
   // DB.schedule נשאר מערכת-ברירת-המחדל (דמו) מ-`DB={...}`, וזה הוזרק לקיץ הריק בכל טעינה → קבוצות-רפאים שחוזרות.
-  DB.scheduleSets.forEach(function(s){ if(!s.data || typeof s.data!=='object') s.data={}; });
+  // כל סט חייב data-אובייקט, וכל קבוצה חייבת מערך rows (Firebase משמיט rows:[] ריק → undefined בטעינה → קריסת readers).
+  DB.scheduleSets.forEach(function(s){
+    if(!s.data || typeof s.data!=='object') s.data={};
+    Object.keys(s.data).forEach(function(k){
+      var day=s.data[k]; if(!day||typeof day!=='object')return;
+      if(!Array.isArray(day.groups)) day.groups=[];
+      day.groups.forEach(function(g){ if(g && !Array.isArray(g.rows)) g.rows=[]; });
+    });
+  });
   if (DB.scheduleSets.length > 1) {
     // מרובה-סמסטרים: ה-data של הסמסטר הפעיל הוא מקור-האמת. סמסטר ריק נשאר ריק (לא יורש את הדמו).
     DB.schedule = _act.data;
@@ -4264,8 +4272,8 @@ function deleteStudent(id){
 
 function getLect(id){return DB.lecturers.find(l=>l.id===id);}
 function getStudent(id){return DB.students.find(s=>s.id===id);}
-function getSchedGroupHrs(dow,track,grpName){const key=dow+'_'+track;const sched=(DB.schedule||{})[key];if(!sched||!sched.groups)return null;const grp=sched.groups.find(g=>g.name===grpName);if(!grp)return null;const h=grp.rows.reduce((s,r)=>s+(r.payHrs||0),0);return h>0?Math.round(h*100)/100:null;}
-function getSchedTotalHrs(dow,track){const key=dow+'_'+track;const sched=(DB.schedule||{})[key];if(!sched||!sched.groups||!sched.groups.length)return null;const h=sched.groups.reduce((s,g)=>s+g.rows.reduce((s2,r)=>s2+(r.payHrs||0),0),0);return h>0?Math.round(h*100)/100:null;}
+function getSchedGroupHrs(dow,track,grpName){const key=dow+'_'+track;const sched=(DB.schedule||{})[key];if(!sched||!Array.isArray(sched.groups))return null;const grp=sched.groups.find(g=>g&&g.name===grpName);if(!grp)return null;const h=(grp.rows||[]).reduce((s,r)=>s+((r&&r.payHrs)||0),0);return h>0?Math.round(h*100)/100:null;}
+function getSchedTotalHrs(dow,track){const key=dow+'_'+track;const sched=(DB.schedule||{})[key];if(!sched||!Array.isArray(sched.groups)||!sched.groups.length)return null;const h=sched.groups.reduce((s,g)=>s+((g&&g.rows)||[]).reduce((s2,r)=>s2+((r&&r.payHrs)||0),0),0);return h>0?Math.round(h*100)/100:null;}
 function getQuota(dow,t){return getSchedTotalHrs(dow,t);}
 function getYearQuota(yn,track){const qs=(DB.quotas&&DB.quotas[track])||[];let q=qs.find(x=>yn===x.year||yn.startsWith(x.year));if(!q)q=qs.find(x=>yn.includes(x.year)||(x.year.length>2&&yn.includes(x.year.split(' ')[0])));return q?q.quota:null;}
 function getTrackTotalQuota(track){return((DB.quotas&&DB.quotas[track])||[]).reduce((s,q)=>s+q.quota,0);}
