@@ -167,6 +167,7 @@ tr.drag-over td{border-top:2px solid #10717E}
       <button class="nb" onclick="nav('settings',this)">הגדרות</button>
     </div>
     <span class="role-tag" id="role-tag"></span>
+    <span id="ver-tag" title="גרסת המערכת" style="font-size:11px;color:var(--color-text-tertiary);flex-shrink:0"></span>
     <button id="theme-toggle" onclick="toggleTheme()" title="בהיר / כהה" style="background:none;border:0.5px solid var(--color-border-secondary);border-radius:6px;padding:3px 8px;cursor:pointer;font-size:14px;color:var(--color-text-secondary);line-height:1">☀</button>
     <button class="exit-btn" onclick="logout()">יציאה ←</button>
   </div>
@@ -797,7 +798,7 @@ function _deletionGuard(){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260733;
+const APP_VERSION = 20260734;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -805,7 +806,9 @@ function _checkAppVersion(remote){
       sessionStorage.setItem('sh_rlv'+v,'1');
       // קריטי: אל תבצע reload לפני שכל שינוי-ממתין (debounce/דלתא) נשמר ואושר בשרת — אחרת עריכה/הוספה
       // שנעשתה שנייה לפני פרסום-גרסה נמחקת (כתיבת-רשת אסינכרונית לא מסתיימת ב-beforeunload).
-      var _reload=function(){ try{ location.reload(); }catch(e){} };
+      // עוקף-קאש: GitHub Pages מגיש index.html עם max-age=600, אז location.reload() רגיל עלול להגיש
+      // את הקובץ הישן מהקאש → המכשיר נתקע על גרסה ישנה ומריץ קוד ישן. ניווט לכתובת ייחודית-לגרסה מכריח משיכה טרייה.
+      var _reload=function(){ try{ location.replace(location.pathname+'?ver='+v); }catch(e){ try{location.reload();}catch(_){} } };
       try{ clearTimeout(_fbSaveTimer); Promise.resolve(_pushDirty()).then(_reload,_reload); }
       catch(e){ _reload(); }
     }
@@ -3294,7 +3297,8 @@ function updateSchedRow(key,gi,ri,field,val){
   saveDB();
 }
 function removeSchedGroup(key,gi){
-  var sec=DB.schedule&&DB.schedule[key]; if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi])return;
+  var sec=DB.schedule&&DB.schedule[key];
+  if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]){ try{renderSchedEditor();}catch(e){} return; } // אינדקס מיושן → סנכרן מחדש, לא לשתוק
   var gname=(sec.groups[gi]&&sec.groups[gi].name)||'';
   if(!confirm('למחוק את הקבוצה "'+gname+'" וכל השורות שבה?'))return;
   sec.groups.splice(gi,1);
@@ -3302,7 +3306,7 @@ function removeSchedGroup(key,gi){
 }
 function removeSchedRow(key,gi,ri){
   var sec=DB.schedule&&DB.schedule[key];
-  if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]||!Array.isArray(sec.groups[gi].rows)||!sec.groups[gi].rows[ri])return;
+  if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]||!Array.isArray(sec.groups[gi].rows)||!sec.groups[gi].rows[ri]){ try{renderSchedEditor();}catch(e){} return; }
   if(!confirm('למחוק שורה זו מהמערכת?'))return;
   sec.groups[gi].rows.splice(ri,1);
   saveDB();renderSchedEditor();
@@ -4263,7 +4267,7 @@ function submitPin(){
     document.getElementById('pin-input').value='';document.getElementById('pin-input').focus();
   }
 }
-function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;applyRoleNav(role);_resetSessionTimer();_registerPresence();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeDailyBackup();}catch(e){console.error('daily backup:',e);}},4000);}}
+function enterApp(role){currentRole=role;currentTrack=role==='coord_m'?'m':role==='coord_w'?'w':null;document.getElementById('login-screen').style.display='none';document.getElementById('app-screen').classList.add('active');document.getElementById('role-tag').textContent={teacher:'מרצה',coord_m:'רכז מסלול גברים',coord_w:'רכזת מסלול נשים',principal:'מנהל בית הספר',office:'מנהלת משרד',staff:'צוות מנהלי — דיווח'}[role]||role;var _vt=document.getElementById('ver-tag');if(_vt)_vt.textContent='v'+APP_VERSION;applyRoleNav(role);_resetSessionTimer();_registerPresence();if(role==='coord_m'||role==='coord_w')setTimeout(checkReturnedItems,800);if(role==='office'||role==='principal'){setTimeout(_promptPaymentReminders,1000);setTimeout(()=>{try{_maybeDailyBackup();}catch(e){console.error('daily backup:',e);}},4000);}}
 function checkReturnedItems(){
   const ret=DB.days.filter(d=>d.dayApproval==='returned'&&(d.enteredBy?d.enteredBy===currentRole:(!currentTrack||d.track===currentTrack)));
   if(!ret.length)return;
