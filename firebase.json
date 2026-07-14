@@ -1,9 +1,18 @@
 {
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20",
+    "ignore": ["node_modules", ".git", "*.log"]
+  },
   "hosting": {
     "site": "shirat-worklog",
     "public": "site",
     "ignore": ["**/.*"],
-    "rewrites": [{ "source": "**", "destination": "/index.html" }],
+    "rewrites": [
+      { "source": "/__submitOp", "function": "submitOperation", "region": "me-west1" },
+      { "source": "/__claimRole", "function": "claimRole", "region": "me-west1" },
+      { "source": "**", "destination": "/index.html" }
+    ],
     "headers": [
       {
         "source": "/index.html",

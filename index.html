@@ -656,24 +656,25 @@ function _pushDirty(attempt){
       return fbDB.ref(FB_PATH).once('value').then(snap=>{
         const server=snap.val()||{};
         _applySnapshot(server);                                   // DB←server, shadow←server, _serverRev←server._rev
-        keys.forEach(k=>{ DB[k]=_mergeKey(k, server[k], oldShadow[k], myVals[k]); });
+        // דחייה-רועשת (במקום מיזוג-שקט): העריכה המקומית המתנגשת נזנחת ומצב-השרת גובר — לעולם לא דורסים בשקט
+        // כתיבה של משתמש אחר. זו ההתנהגות שהוכחה בטוחה מלפני 2026-07-09 (regression_pre_0709_reject_does_not_silently_lose).
         _rerenderCurrentPage();
-        return _pushDirty(attempt+1);
+        _notifyConflict();
       }).catch(e=>{ _fbIgnoreNext=false; _onWriteRejected(e); throw e; });
     }
     _fbIgnoreNext=false; _onWriteRejected(err); throw err;
   });
 }
 let _writeRejectNoticeAt=0;
+// התראת-קונפליקט (מווסתת): מוצגת כשעריכה מקומית נזנחה לטובת מצב-השרת. שקוף למשתמש — לעולם לא אובדן שקט.
+function _notifyConflict(){ var now=Date.now(); if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('⚠️ הנתונים עודכנו ממכשיר אחר והמסך רוענן.\nאם ביצעת שינוי כרגע — ודא/י שנקלט, וחזור/י עליו אם צריך.'); }catch(e){} } }
 function _onWriteRejected(err){
   const info=((err&&err.code)||'')+' '+((err&&err.message)||'');
   console.warn('Firebase write rejected — re-syncing:', info);
   if(!/permission|denied/i.test(info))return; // רשת זמנית → תור אוטומטי; רק דחיית-הרשאה = כתיבה מיושנת
   // שכבה 4: אל תדרוס עבודה מקומית לא-שמורה גם במסלול-הכשל האחרון — מזג ושמור אותה בחזרה.
-  var _d=_computeDirty(); var _os={},_mv={}; _d.keys.forEach(function(k){_os[k]=_dbShadow[k];_mv[k]=DB[k];});
   fbDB.ref(FB_PATH).once('value').then(s=>{
-    var server=s.val()||{}; _applySnapshot(server);
-    if(_d.keys.length){ _d.keys.forEach(function(k){ DB[k]=_mergeKey(k,server[k],_os[k],_mv[k]); }); saveDB(); }
+    var server=s.val()||{}; _applySnapshot(server);   // resync למצב-השרת; עריכה מקומית מתנגשת נזנחת (גלוי) — בלי מיזוג-שקט שדורס נתוני-שרת
     _rerenderCurrentPage();
   }).catch(()=>{});
   const now=Date.now();
@@ -857,7 +858,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260740;
+const APP_VERSION = 20260741;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3142,15 +3143,11 @@ function _startListener() {
     // מכסה: הד-הכתיבה-שלנו, וגם רעש presence/גיבויים (שאינם מעדכנים _rev). לא מפספס עדכון-נתונים אמיתי של מכשיר אחר.
     if (!_d.keys.length && srev <= _serverRev) return;
     _fbIgnoreNext = false;
-    // שכבה 3: עדכון נכנס ממכשיר אחר — לא לדרוס עבודה מקומית שטרם נשמרה. מזגים מפתחות-מלוכלכים אחרי החלת השרת.
-    var _os = {}, _mv = {};
-    _d.keys.forEach(function(k){ _os[k]=_dbShadow[k]; _mv[k]=DB[k]; });
+    // עדכון נכנס ממכשיר אחר: מחילים את מצב-השרת. אם הייתה עריכה מקומית לא-שמורה — היא נזנחת (גלוי, עם התראה),
+    // לעולם לא ממוזגת-שקט מעל נתוני-השרת (מנגנון-האובדן המוכח מ-2026-07-09). דחייה-רועשת = בטוח.
+    var _hadLocal = _d.keys.length > 0;
     _applySnapshot(server);
-    if (_d.keys.length) {
-      _d.keys.forEach(function(k){ DB[k] = _mergeKey(k, server[k], _os[k], _mv[k]); });
-      console.warn('שכבה 3: מוזגו', _d.keys.length, 'מפתחות מקומיים לא-שמורים אחרי עדכון נכנס:', _d.keys);
-      saveDB(); // שמור בחזרה את העבודה המקומית המשומרת
-    }
+    if (_hadLocal) { console.warn('עדכון נכנס — עריכה מקומית לא-שמורה נזנחה (resync בטוח)', _d.keys); _notifyConflict(); }
     // רענון הדף הנוכחי בלבד
     if (currentRole) {
       try {
