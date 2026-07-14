@@ -15,11 +15,64 @@ const functions = require('firebase-functions/v1');            // v1 API for the
 const { onRequest } = require('firebase-functions/v2/https');   // Gen2 HTTP — matches the org's working pattern (shirat-core)
 const { setGlobalOptions } = require('firebase-functions/v2');
 setGlobalOptions({ region: 'me-west1' });                       // same region as the existing working Gen2 functions
+const https = require('https');
 const admin = require('firebase-admin');
-admin.initializeApp();
-const { routeOp, authorize, ownershipOk } = require('./dispatch.js');
+admin.initializeApp({ databaseURL: 'https://shirat1-default-rtdb.firebaseio.com' });
+const { routeOp, authorize, ownershipOk, resolveStaffByEmail } = require('./dispatch.js');
 
 const DB_ROOT = 'shirat_v2';   // legacy shirat_v1 stays read-only during migration
+
+// ── RTDB access over REST (NOT the Admin SDK websocket) ──────────────────────
+// The RTDB has App Check enforcement ON. Inside a throttled Gen2 container the
+// Admin SDK's realtime websocket is not reliably recognized as an admin
+// connection ("Missing appcheck token" → the read hangs to the 60s timeout).
+// REST with an ADC OAuth access token (cloud-platform scope) is authenticated as
+// the service account and bypasses App Check + Security Rules deterministically —
+// the same proven path the migration tool uses. All DB I/O here goes through this.
+const DB_HOST = 'shirat1-default-rtdb.firebaseio.com';
+let _tok = null, _tokExp = 0;
+async function dbToken() {
+  const now = Date.now();
+  if (_tok && now < _tokExp - 60000) return _tok;
+  const t = await admin.app().options.credential.getAccessToken();   // ADC (compute SA), cloud-platform scope
+  _tok = t.access_token; _tokExp = now + (t.expires_in ? t.expires_in * 1000 : 3000000);
+  return _tok;
+}
+function _req(method, path, body, headers) {
+  return new Promise((resolve, reject) => {
+    const data = body != null ? JSON.stringify(body) : null;
+    const h = Object.assign({ 'Content-Type': 'application/json' }, headers || {}, data ? { 'Content-Length': Buffer.byteLength(data) } : {});
+    const r = https.request({ method, host: DB_HOST, path, headers: h }, (rs) => {
+      const c = []; rs.on('data', d => c.push(d));
+      rs.on('end', () => { const b = Buffer.concat(c).toString(); resolve({ status: rs.statusCode, body: b, etag: rs.headers.etag }); });
+    });
+    r.on('error', reject); if (data) r.write(data); r.end();
+  });
+}
+async function dbGet(path) {
+  const tok = await dbToken();
+  const r = await _req('GET', '/' + path + '.json?access_token=' + tok);
+  if (r.status >= 400) throw new Error('dbGet ' + path + ' → ' + r.status + ': ' + r.body.slice(0, 150));
+  try { return JSON.parse(r.body); } catch (e) { return null; }
+}
+// Optimistic-concurrency transaction via ETag (X-Firebase-ETag / if-match). update(cur)
+// returns the new value to commit, or undefined to abort. Returns { committed, snapshot }.
+async function dbTransaction(path, update, tries) {
+  const tok = await dbToken();
+  const url = '/' + path + '.json?access_token=' + tok;
+  for (let i = 0; i < (tries || 5); i++) {
+    const g = await _req('GET', url, null, { 'X-Firebase-ETag': 'true' });
+    if (g.status >= 400) throw new Error('txn get ' + path + ' → ' + g.status + ': ' + g.body.slice(0, 150));
+    let cur = null; try { cur = JSON.parse(g.body); } catch (e) { cur = null; }
+    const next = update(cur);
+    if (next === undefined) return { committed: false, snapshot: cur };   // abort — unchanged
+    const p = await _req('PUT', url, next, { 'if-match': g.etag || 'null_etag' });
+    if (p.status < 400) return { committed: true, snapshot: next };
+    if (p.status !== 412) throw new Error('txn put ' + path + ' → ' + p.status + ': ' + p.body.slice(0, 150));
+    // 412 precondition failed → someone else wrote; retry with fresh snapshot
+  }
+  return { committed: false, contention: true };
+}
 
 // HTTP function submitOperation, invoked via a Firebase Hosting REWRITE (/__submitOp).
 // Why onRequest + Hosting rewrite instead of onCall: the shirat.net org enforces
@@ -71,16 +124,15 @@ exports.submitOperation = onRequest(async (req, res) => {
     if (!authz.ok) return res.status(403).json({ status: 'forbidden', code: authz.code });
     if (!ownershipOk(role, claims, op, route)) return res.status(403).json({ status: 'forbidden', code: 'NOT_OWN_DATA' });
 
-    // 5) Atomic CAS + dedupe + audit in ONE transaction on the resolved aggregate root.
-    const ref = admin.database().ref(`${DB_ROOT}/${route.path}`);   // entities/<node>/<entityId>, both validated
+    // 5) Atomic CAS + dedupe + audit in ONE ETag transaction on the resolved aggregate root.
     const nowMs = Date.now();
     let outcome = null;
-    const txn = await ref.transaction((entity) => {
+    const txn = await dbTransaction(`${DB_ROOT}/${route.path}`, (entity) => {   // entities/<node>/<entityId>, both validated
       const r = route.core(entity, { ...op, actor: { uid, role } }, { now: nowMs });
       outcome = r;
       if (r.kind === 'commit') return r.entity;   // write back atomically
-      return;                                     // abort (idempotent/conflict/error): entity unchanged
-    }, undefined, /* applyLocally */ false);
+      return undefined;                           // abort (idempotent/conflict/error): entity unchanged
+    });
 
     if (!txn.committed && outcome && outcome.kind === 'commit') {
       return res.status(503).json({ status: 'transient', code: 'CONTENTION' }); // real non-ACK (INV-4): client retries
@@ -135,15 +187,13 @@ exports.claimRole = onRequest(async (req, res) => {
       // Staff self-report: identity = the VERIFIED email from passwordless (email-link)
       // sign-in, mapped to an adminStaff record. No shared PIN — each staff member is a
       // distinct identity and (enforced in submitOperation) may edit only their own hours.
-      const email = String(decoded.email || '').toLowerCase();
-      if (!email || decoded.email_verified !== true) return res.status(403).json({ status: 'forbidden', code: 'EMAIL_REQUIRED' });
-      const raw = (await admin.database().ref('shirat_v1/adminStaff').once('value')).val() || [];
-      const list = Array.isArray(raw) ? raw : Object.values(raw);
-      const staff = list.find(function (s) { return s && String(s.email || '').toLowerCase() === email; });
-      if (!staff || !staff.id) return res.status(403).json({ status: 'forbidden', code: 'EMAIL_NOT_STAFF' });
-      claims = { role: 'staff', staffId: staff.id };
+      if (!decoded.email || decoded.email_verified !== true) return res.status(403).json({ status: 'forbidden', code: 'EMAIL_REQUIRED' });
+      const raw = (await dbGet('shirat_v1/adminStaff')) || [];
+      const resolved = resolveStaffByEmail(raw, decoded.email);   // pure, unit-tested; loud on 0 / >1
+      if (!resolved.ok) return res.status(403).json({ status: 'forbidden', code: resolved.code });
+      claims = { role: 'staff', staffId: resolved.staffId };
     } else if (role !== 'teacher') {                            // teacher = no PIN; principal/office/coord = PIN
-      const codes = (await admin.database().ref('shirat_v1/codes').once('value')).val() || {};
+      const codes = (await dbGet('shirat_v1/codes')) || {};
       const expected = role === 'coord_m' ? (codes.coord_m || '1234')
         : role === 'coord_w' ? (codes.coord_w || '5678')
         : role === 'office' ? (codes.office || '9999')
@@ -166,7 +216,7 @@ function auditTrigger(node) {
   return functions.database.ref(`${DB_ROOT}/entities/${node}/{id}/_audit/{eventId}`)
     .onCreate(async (snap, ctx) => {
       const ev = snap.val();
-      await admin.database().ref(`${DB_ROOT}/auditLog/${ctx.params.eventId}`).transaction(cur => (cur === null ? ev : undefined));
+      await dbTransaction(`${DB_ROOT}/auditLog/${ctx.params.eventId}`, cur => (cur === null ? ev : undefined));
     });
 }
 exports.fanoutAudit_lecturers = auditTrigger('lecturers');

@@ -115,10 +115,10 @@ function authorize(role, route) {
     // coordinators enter study days + admin hours (their operational domain)
     return (route.node === 'days' || route.node === 'adminHours') ? { ok: true } : { ok: false, code: 'FORBIDDEN_ROLE' };
   }
-  if (role === 'teacher') {                                                             // self-report private lessons only
-    return (route.node === 'privateLessons') ? { ok: true } : { ok: false, code: 'FORBIDDEN_ROLE' };
+  if (role === 'teacher') {                                                             // DISABLED pending an identity-safe
+    return { ok: false, code: 'TEACHER_DISABLED' };                                     // lecturer model (no real per-lecturer ownership yet)
   }
-  if (role === 'staff') {                                                               // self-report admin hours only
+  if (role === 'staff') {                                                               // self-report admin hours only (ownership checked separately)
     return (route.node === 'adminHours') ? { ok: true } : { ok: false, code: 'FORBIDDEN_ROLE' };
   }
   return { ok: false, code: 'FORBIDDEN' };                                              // unknown / no role
@@ -133,7 +133,30 @@ function authorize(role, route) {
 function ownershipOk(role, claims, op, route) {
   if (role !== 'staff') return true;
   const staffId = claims && claims.staffId;
-  return route.node === 'adminHours' && !!staffId && typeof op.entityId === 'string' && op.entityId.endsWith('_' + staffId);
+  if (!staffId || route.node !== 'adminHours') return false;
+  // STRICT schema parse of the adminHours key `<YYYY-MM>_<staffId>` — NOT endsWith (which
+  // suffers a suffix-collision: claim 's1' would match another staff's key '..._b_s1').
+  // Validate month and staffId separately; staffId must equal the SIGNED claim EXACTLY.
+  const id = typeof op.entityId === 'string' ? op.entityId : '';
+  const m = /^(\d{4})-(\d{2})_(.+)$/.exec(id);
+  if (!m) return false;                               // malformed entityId
+  const mm = parseInt(m[2], 10);
+  if (mm < 1 || mm > 12) return false;                // invalid month component
+  return m[3] === String(staffId);                    // exact staffId match — no collision, no client-supplied authority
 }
 
-module.exports = { routeOp, authorize, ownershipOk, validKey, CORES, ROUTES, COLLECTION_ALLOWLIST };
+// Staff identity resolution: map a VERIFIED email-link email to EXACTLY ONE adminStaff
+// record. This is the sole authority for a staff member's staffId — the client never
+// supplies it. 0 matches → not staff; >1 → LOUD ambiguous failure (never pick arbitrarily,
+// which could hand one person another's hours). Pure + unit-tested; used by claimRole.
+function resolveStaffByEmail(adminStaff, email) {
+  const e = String(email || '').trim().toLowerCase();
+  if (!e) return { ok: false, code: 'EMAIL_REQUIRED' };
+  const list = Array.isArray(adminStaff) ? adminStaff : Object.values(adminStaff || {});
+  const matches = list.filter(s => s && s.id && String(s.email || '').trim().toLowerCase() === e);
+  if (matches.length === 0) return { ok: false, code: 'EMAIL_NOT_STAFF' };
+  if (matches.length > 1) return { ok: false, code: 'EMAIL_AMBIGUOUS' };
+  return { ok: true, staffId: matches[0].id };
+}
+
+module.exports = { routeOp, authorize, ownershipOk, resolveStaffByEmail, validKey, CORES, ROUTES, COLLECTION_ALLOWLIST };

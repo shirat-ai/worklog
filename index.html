@@ -108,6 +108,12 @@ tr.drag-over td{border-top:2px solid #10717E}
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+  <!-- v2 server-authoritative pipeline (commit-cores + outbox + data-layer + diff-to-ops), then browser adapters -->
+  <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
+       to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
+       ON EVERY bundle/integration change. -->
+  <script src="shirat-v2-bundle.js?v=20260714b"></script>
+  <script src="v2-integration.js?v=20260714b"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -1602,9 +1608,20 @@ function initStaffReport(){
   const msel=document.getElementById('staff-report-month');
   if(!sel||!msel)return;
   const staff=DB.adminStaff||[];
-  const prevPick=sel.value;
-  sel.innerHTML='<option value="">— בחר/י את שמך —</option>'+staff.map(s=>'<option value="'+escH(s.id)+'">'+escH(s.name)+'</option>').join('');
-  if(prevPick&&staff.some(s=>s.id===prevPick))sel.value=prevPick;
+  // v2: the staff identity is the server-verified email-link claim (_v2StaffId). NO picker:
+  // hide the dropdown entirely and lock it to the identified employee. (v1-default path
+  // keeps the legacy picker until the cutover flip — _v2StaffId is null there.)
+  if(_v2StaffId){
+    sel.style.display='none';
+    const me=staff.find(s=>s.id===_v2StaffId);
+    sel.innerHTML='<option value="'+escH(_v2StaffId)+'">'+escH(me?me.name:'')+'</option>';
+    sel.value=_v2StaffId;
+  }else{
+    sel.style.display='';
+    const prevPick=sel.value;
+    sel.innerHTML='<option value="">— בחר/י את שמך —</option>'+staff.map(s=>'<option value="'+escH(s.id)+'">'+escH(s.name)+'</option>').join('');
+    if(prevPick&&staff.some(s=>s.id===prevPick))sel.value=prevPick;
+  }
   const HM=['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
   const now=new Date();
   const curM=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
@@ -1621,7 +1638,8 @@ function renderStaffReport(){
   const msel=document.getElementById('staff-report-month');
   const body=document.getElementById('staff-report-body');
   if(!body)return;
-  const sid=sel?sel.value:'';
+  // v2: identity is the server-verified email-link staff claim — NEVER a client picker.
+  const sid=_v2StaffId?_v2StaffId:(sel?sel.value:'');
   const month=msel?msel.value:'';
   _staffRepSid=sid;_staffRepMonth=month;
   const staff=DB.adminStaff||[];
@@ -3173,8 +3191,12 @@ function _startListener() {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('fb-loader').style.display = 'flex';
+  // v2 email-link return does NOT sign in anonymously (it signs in as the staff email).
+  if (USE_V2 && firebase.auth().isSignInWithEmailLink && firebase.auth().isSignInWithEmailLink(window.location.href)) {
+    _v2Boot(); return;
+  }
   firebase.auth().signInAnonymously()
-    .then(() => loadDB())
+    .then(() => (USE_V2 ? _v2Boot() : loadDB()))
     .catch(e => {
       console.error('Auth error:', e);
       document.getElementById('fb-loader').style.display = 'none';
@@ -3191,6 +3213,135 @@ function _resetSessionTimer(){
   _sessionTimer=setTimeout(function(){if(currentRole){alert('פג תוקף הסשן — יש להתחבר מחדש');logout();}},SESSION_MS);
 }
 ['click','keydown','touchstart'].forEach(function(ev){document.addEventListener(ev,function(){if(currentRole)_resetSessionTimer();},{passive:true});});
+
+// ═══════════════════ V2 SERVER-AUTHORITATIVE CUTOVER ═══════════════════
+// The client reads from shirat_v2 (server-authoritative projection) and writes ONLY
+// typed operations (via diffToOps → the deployed submitOperation Cloud Function). The
+// legacy shirat_v1 write funnel (saveDB→_pushDirty) is REPLACED. Roles authenticate via
+// claimRole (PIN for the single-person roles; passwordless email-link for staff).
+// Cutover flag. During QA it is gated by ?v2=1 (normal users stay on the safe v1 client);
+// after QA passes it is flipped to a plain `true` default in a redeploy.
+// CUTOVER 2026-07-14 (FINAL): v2 is the SOLE client path (server-authoritative for
+// protected aggregates; config-lane keeps groups/quotas/etc. in v1). There is NO runtime
+// query/localStorage fallback to the legacy v1 client. Rollback is an OPS action only:
+// redeploy the previous index.html (git) + republish server-pipeline/rules-v2-STAGE1.json;
+// clean backup at backups/shirat_v1_CLEAN_2026-07-14T17-49-47-329Z.json.
+var USE_V2 = true;
+var _v2 = null, _v2Base = {}, _v2Pending = 0, _v2StaffId = null;
+// CONFIG-LANE: the protected, concurrency-hazard aggregates are v2-authoritative. But the
+// app also uses small, low-concurrency CONFIG that was never migrated and still lives in
+// v1 (track groups, quotas, activity log, notification-dedup flags, pay notes, backups
+// meta). The v2 client READS these from v1 and MERGES them into DB (so the UI works), and
+// WRITES changed config back to v1 child nodes. `codes` (PINs) is intentionally NOT read
+// into the client — v2 auth is server-side via claimRole. presence is read-only (per-uid,
+// ephemeral). These v1 config nodes stay client-writable in the deny-legacy rules.
+var _V2_CFG_READ  = ['groups','quotas','activityLog','emailSent','payReminderSent','payNotes','integrations','appVersion','backups','lastWeeklyBackup','presence'];
+var _V2_CFG_WRITE = ['groups','quotas','activityLog','emailSent','payReminderSent','payNotes','integrations','lastWeeklyBackup'];
+var _v2Config = {};
+function _v2MergeConfig(){ for (var i=0;i<_V2_CFG_READ.length;i++){ var k=_V2_CFG_READ[i]; if(_v2Config[k]!==undefined && DB) DB[k]=_v2Config[k]; } }
+function _v2ApplyDB(assembled){
+  if (!assembled) return;
+  _v2Base = JSON.parse(JSON.stringify(assembled));
+  if (_v2Pending <= 0) {                       // rebuild the in-memory DB only when no local edits are in-flight
+    DB = JSON.parse(JSON.stringify(assembled));
+    _v2MergeConfig();                          // overlay the v1-resident config so the UI has groups/quotas/etc.
+    for (var i=0;i<_V2_CFG_READ.length;i++){ var k=_V2_CFG_READ[i]; if(_v2Config[k]!==undefined) _v2Base[k]=JSON.parse(JSON.stringify(_v2Config[k])); }
+    _loadOK = true;
+    var l = document.getElementById('fb-loader'); if (l) l.style.display = 'none';
+    if (currentRole) { try { _rerenderCurrentPage(); } catch(e){} }
+  }
+}
+function _v2Boot(){
+  try {
+    var I = window.ShiratV2Integration;
+    _v2 = window.createDataLayer({
+      store: I.makeIndexedDBStore('shirat_outbox_v2'),
+      transport: I.makeHttpTransport(firebase),
+      clock: function(){ return Date.now(); },
+      genId: function(){ try { return firebase.database().ref().push().key; } catch(e){ return 'op'+Date.now()+Math.random().toString(36).slice(2); } },
+      onCommitted: function(){ if(_v2Pending>0)_v2Pending--; },
+      onConflict: function(){ if(_v2Pending>0)_v2Pending--; try{ _notifyConflict(); }catch(e){} if(_v2)_v2ApplyDB(_v2.assembleDB()); },
+      onError: function(rec, info){ if(_v2Pending>0)_v2Pending--; if(info&&info.message)console.warn('v2:', info.message); },
+    });
+    firebase.database().ref('shirat_v2/entities').on('value', function(snap){
+      _v2.applySnapshot({ entities: snap.val() || {} });
+      _v2ApplyDB(_v2.assembleDB());
+    });
+    // CONFIG-LANE read: subscribe to each v1 config node; merge live into DB.
+    _V2_CFG_READ.forEach(function(k){
+      firebase.database().ref('shirat_v1/'+k).on('value', function(snap){
+        var val = snap.val();
+        if (val===null||val===undefined) delete _v2Config[k]; else _v2Config[k]=val;
+        if (DB) { if(val===null||val===undefined) { if(k in DB) delete DB[k]; } else { DB[k]=val; } }
+        if (_v2Pending<=0 && _v2Base) { if(val===null||val===undefined){ delete _v2Base[k]; } else { _v2Base[k]=JSON.parse(JSON.stringify(val)); } }
+        if (currentRole) { try { _rerenderCurrentPage(); } catch(e){} }
+      });
+    });
+    _v2.recover();
+    // ALL protected-aggregate saves become typed ops (field/row-level diff vs last server
+    // state) — no v1 funnel. CONFIG keys are diffed separately and written to their v1 node.
+    saveDB = function(){ try {
+      if(!_v2||!DB) return;
+      var ops = window.diffToOps(_v2Base, DB, _v2); _v2Pending += ops.length;
+      for (var i=0;i<_V2_CFG_WRITE.length;i++){ var k=_V2_CFG_WRITE[i];
+        var cur = DB[k], prev = _v2Config[k];
+        if (JSON.stringify(cur) !== JSON.stringify(prev)) {
+          _v2Config[k] = (cur===undefined?undefined:JSON.parse(JSON.stringify(cur)));
+          try { firebase.database().ref('shirat_v1/'+k).set(cur===undefined?null:cur); } catch(e){ console.warn('v2 cfg write', k, e); }
+        }
+      }
+      _v2Base = JSON.parse(JSON.stringify(DB));
+    } catch(e){ console.error('v2 saveDB', e); } };
+    flushSaveNow = function(){ try{ saveDB(); }catch(e){} return Promise.resolve(); };
+    // login: single-person roles → server-verified PIN (claimRole); staff → email-link; teacher → disabled.
+    var _origStartLogin = startLogin;
+    startLogin = function(role){
+      if (role === 'teacher') { alert('כניסת מרצה מושבתת זמנית (בתהליך שדרוג זהות).'); return; }
+      if (role === 'staff') { _v2StaffLogin(); return; }
+      _origStartLogin(role);                    // principal/office/coord_m/coord_w → PIN form
+    };
+    submitPin = function(){
+      var role = pendingRole, pin = document.getElementById('pin-input').value;
+      var err = document.getElementById('pin-err'); if (err) err.textContent = 'מתחבר…';
+      _v2Login(role, pin).then(function(ok){
+        if (ok) { if(err) err.textContent=''; try{ sessionStorage.removeItem('sh_lock'); sessionStorage.removeItem('sh_fails'); }catch(e){} enterApp(role); }
+        else { if(err) err.textContent='קוד שגוי'; document.getElementById('pin-input').value=''; }
+      }).catch(function(){ if(err) err.textContent='שגיאת התחברות — נסה/י שוב'; });
+    };
+    _v2EmailLinkReturn();
+  } catch(e){ console.error('v2 boot failed', e); alert('שגיאת אתחול המערכת — נסה/י לרענן'); }
+}
+// ── login rewiring: claimRole (server-verified) instead of client-side PIN ──
+function _v2Login(role, pin){
+  var I = window.ShiratV2Integration;
+  return I.claimRole(firebase, role, pin).then(function(res){
+    if (res && res.status === 'ok') { _v2StaffId = res.staffId || null; return true; }
+    return false;
+  });
+}
+function _v2StaffLogin(){
+  var I = window.ShiratV2Integration;
+  var email = (window.prompt('הזן/י את כתובת האימייל שלך (כפי שרשומה במערכת):')||'').trim().toLowerCase();
+  if (!email) return;
+  var acs = { url: window.location.origin + window.location.pathname, handleCodeInApp: true };
+  firebase.auth().sendSignInLinkToEmail(email, acs).then(function(){
+    window.localStorage.setItem('sh_emailForSignIn', email);
+    alert('נשלח אליך קישור-כניסה למייל. פתח/י אותו במכשיר זה כדי להיכנס.');
+  }).catch(function(e){ alert('שליחת הקישור נכשלה: '+((e&&e.message)||e)); });
+}
+function _v2EmailLinkReturn(){
+  if (!(firebase.auth().isSignInWithEmailLink && firebase.auth().isSignInWithEmailLink(window.location.href))) return;
+  var email = window.localStorage.getItem('sh_emailForSignIn') || (window.prompt('אשר/י את כתובת האימייל שלך:')||'').trim().toLowerCase();
+  if (!email) return;
+  firebase.auth().signInWithEmailLink(email, window.location.href).then(function(){
+    window.localStorage.removeItem('sh_emailForSignIn');
+    try { history.replaceState(null,'',window.location.pathname); } catch(e){}
+    return window.ShiratV2Integration.claimRole(firebase, 'staff', null);
+  }).then(function(res){
+    if (res && res.status === 'ok') { _v2StaffId = res.staffId || null; enterApp('staff'); }
+    else { alert('כתובת האימייל אינה רשומה כאיש-צוות מנהלי במערכת.'); }
+  }).catch(function(e){ alert('כניסה נכשלה: '+((e&&e.message)||e)); });
+}
 
 
 
@@ -3360,19 +3511,26 @@ function exportScheduleExcel(){
   if(rows.length<2){alert('אין מערכת שעות מוגדרת');return;}
   _downloadXls(rows,'מערכת_שעות.xls');
 }
+// v2: schedule-SET management (create/rename/delete/switch semester) is not yet wired to
+// typed ops (only slot-row editing of the ACTIVE semester is). Temporarily disable those
+// specific operations under v2 with a clear message rather than let them write nothing /
+// inconsistently. Daily slot editing is unaffected. (Tracked for follow-up wiring.)
+var _v2SchedAlerted=false;
+function _v2SchedBlocked(){ if(typeof USE_V2!=='undefined'&&USE_V2){ if(!_v2SchedAlerted){_v2SchedAlerted=true;alert('עריכת מערכת-השעות (סמסטרים ומשבצות) מוצגת לצפייה בלבד בגרסה החדשה כרגע, ותוחזר בקרוב. שאר חלקי המערכת (מרצים, ימי-לימוד, שעות-מנהלה, תשלומים) פעילים במלואם.');} return true; } return false; }
 function _activeSet(){return (DB.scheduleSets||[]).find(s=>s.id===DB.activeScheduleId)||(DB.scheduleSets||[])[0];}
 function _setActiveSem(id){DB.activeScheduleId=id;try{localStorage.setItem('sh_activeSem',id);}catch(e){}}
-function switchScheduleSet(id){const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;if(!s.data||typeof s.data!=='object')s.data={};_setActiveSem(id);DB.schedule=s.data;saveDB();renderSchedEditor();}
-function newScheduleSet(){const name=prompt('שם הסמסטר החדש (למשל "סמסטר קיץ" / "סמסטר א\' תשפ"ז"):');if(!name||!name.trim())return;const copy=confirm('להתחיל מהעתקת המערכת הנוכחית ("'+((_activeSet()||{}).name||'')+'")?\n\nאישור = העתק ועֲרוֹך · ביטול = התחל ריק');const data=copy?JSON.parse(JSON.stringify(DB.schedule||{})):{};const cur=_activeSet();if(cur)cur.data=DB.schedule;const s={id:_uid('ss'),name:name.trim(),data};if(!DB.scheduleSets)DB.scheduleSets=[];DB.scheduleSets.push(s);_setActiveSem(s.id);DB.schedule=s.data;saveDB();renderSchedEditor();}
-function renameScheduleSet(){const s=_activeSet();if(!s)return;const n=prompt('שם חדש לסמסטר:',s.name);if(!n||!n.trim())return;s.name=n.trim();saveDB();renderSchedEditor();}
-function deleteScheduleSet(){if((DB.scheduleSets||[]).length<=1){alert('לא ניתן למחוק — חייבת להישאר מערכת שעות אחת לפחות.');return;}const s=_activeSet();if(!s)return;if(!confirm('למחוק את הסמסטר "'+s.name+'"?\nמערכת השעות שלו תימחק. (ימי-לימוד שכבר הוזנו נשמרים בנפרד ולא יושפעו.)'))return;DB.scheduleSets=DB.scheduleSets.filter(x=>x.id!==s.id);const nx=DB.scheduleSets[0];_setActiveSem(nx.id);DB.schedule=nx.data;saveDB();renderSchedEditor();}
+function switchScheduleSet(id){if(_v2SchedBlocked()){renderSchedEditor();return;}const s=(DB.scheduleSets||[]).find(x=>x.id===id);if(!s)return;const cur=_activeSet();if(cur)cur.data=DB.schedule;if(!s.data||typeof s.data!=='object')s.data={};_setActiveSem(id);DB.schedule=s.data;saveDB();renderSchedEditor();}
+function newScheduleSet(){if(_v2SchedBlocked())return;const name=prompt('שם הסמסטר החדש (למשל "סמסטר קיץ" / "סמסטר א\' תשפ"ז"):');if(!name||!name.trim())return;const copy=confirm('להתחיל מהעתקת המערכת הנוכחית ("'+((_activeSet()||{}).name||'')+'")?\n\nאישור = העתק ועֲרוֹך · ביטול = התחל ריק');const data=copy?JSON.parse(JSON.stringify(DB.schedule||{})):{};const cur=_activeSet();if(cur)cur.data=DB.schedule;const s={id:_uid('ss'),name:name.trim(),data};if(!DB.scheduleSets)DB.scheduleSets=[];DB.scheduleSets.push(s);_setActiveSem(s.id);DB.schedule=s.data;saveDB();renderSchedEditor();}
+function renameScheduleSet(){if(_v2SchedBlocked())return;const s=_activeSet();if(!s)return;const n=prompt('שם חדש לסמסטר:',s.name);if(!n||!n.trim())return;s.name=n.trim();saveDB();renderSchedEditor();}
+function deleteScheduleSet(){if(_v2SchedBlocked())return;if((DB.scheduleSets||[]).length<=1){alert('לא ניתן למחוק — חייבת להישאר מערכת שעות אחת לפחות.');return;}const s=_activeSet();if(!s)return;if(!confirm('למחוק את הסמסטר "'+s.name+'"?\nמערכת השעות שלו תימחק. (ימי-לימוד שכבר הוזנו נשמרים בנפרד ולא יושפעו.)'))return;DB.scheduleSets=DB.scheduleSets.filter(x=>x.id!==s.id);const nx=DB.scheduleSets[0];_setActiveSem(nx.id);DB.schedule=nx.data;saveDB();renderSchedEditor();}
 function _semRank(n){n=n||'';if(/קיץ/.test(n))return 3;if(/א['׳]/.test(n)||/סמסטר\s*א/.test(n))return 1;if(/ב['׳]/.test(n)||/סמסטר\s*ב/.test(n))return 2;return 2.5;}
 function _schedSetBar(){const sets=(DB.scheduleSets||[]).slice().sort((a,b)=>_semRank(a.name)-_semRank(b.name)||String(a.name||'').localeCompare(String(b.name||''),'he'));return `<div class="card" style="margin-bottom:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-size:13.5px;font-weight:600">📅 סמסטר פעיל:</span><select style="font-size:14px;padding:4px 12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:var(--color-background-primary);color:var(--color-text-primary);font-weight:500;cursor:pointer" onchange="switchScheduleSet(this.value)">${sets.map(s=>`<option value="${escH(s.id)}"${s.id===DB.activeScheduleId?' selected':''}>${escH(s.name)}</option>`).join('')}</select><button class="btn btn-sm btn-g" onclick="newScheduleSet()">+ סמסטר חדש</button><button class="btn btn-sm" onclick="renameScheduleSet()">✎ שנה שם</button><button class="btn btn-sm" onclick="deleteScheduleSet()" style="color:#A32D2D">🗑 מחק</button><button data-label="💾 שמירה" onclick="flushSaveNow(this)" style="font-size:13px;font-weight:600;padding:5px 16px;border:none;border-radius:8px;background:#10717E;color:#fff;cursor:pointer;margin-right:auto" title="שמירה מיידית של מערכת השעות בענן">💾 שמירה</button><span style="font-size:12.5px;color:var(--color-text-tertiary);flex-basis:100%;margin-top:2px">הרישום היומי משתמש בסמסטר הפעיל. מעבר בין סמסטרים אינו מוחק — ימי-לימוד שכבר הוזנו נשמרים בנפרד. לחיצה על "שמירה" מוודאת שהמערכת נקלטה בענן.</span></div>`;}
 var _schedShownHash=null;
 function renderSchedEditor(){const el=document.getElementById('sched-editor');if(!el)return;_schedShownHash=JSON.stringify(DB.schedule||{});el.innerHTML=_schedSetBar()+SCHED_KEYS.map(sk=>{const sched=DB.schedule[sk.key]||{groups:[]};const track=sk.key.endsWith('_m')?'m':'w';const grpHtml=(sched.groups||[]).map((g,gi)=>`<div style="margin-bottom:8px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:var(--color-background-secondary)"><select style="border:none;background:transparent;font-size:13.5px;font-weight:500;color:var(--color-text-primary);flex:1" onchange="updateSchedGroup('${sk.key}',${gi},'name',this.value)">${getGrps(track).map(g2=>'<option value="'+g2+'"'+(g2===g.name?' selected':'')+'>'+g2+'</option>').join('')}</select><button class="btn-del" onclick="removeSchedGroup('${sk.key}',${gi})">×</button></div><div style="padding:6px 10px">${(g.rows||[]).map((r,ri)=>`<div style="display:flex;gap:4px;align-items:center;margin-bottom:3px"><select style="font-size:12.5px;flex:1;min-width:80px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'lectId',this.value)">${buildLectOpts(track,r.lectId)}</select><input value="${r.courseName||''}" placeholder="שם קורס" style="flex:1;min-width:80px;font-size:12.5px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'courseName',this.value)"><select style="font-size:12.5px;width:62px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'start',this.value)">${TIMES.map(t=>'<option value="'+t+'"'+(t===r.start?' selected':'')+'>'+t+'</option>').join('')}</select><select style="font-size:12.5px;width:62px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'end',this.value)">${TIMES.map(t=>'<option value="'+t+'"'+(t===r.end?' selected':'')+'>'+t+'</option>').join('')}</select><input type="number" data-sched-pay="${sk.key}_${gi}_${ri}" value="${r.payHrs||0}" step="0.25" style="width:46px;font-size:12.5px" onchange="updateSchedRow('${sk.key}',${gi},${ri},'payHrs',parseFloat(this.value)||0)"><button class="btn-del" onclick="removeSchedRow('${sk.key}',${gi},${ri})">×</button></div>`).join('')}<button class="btn btn-sm" style="font-size:12px;margin-top:3px" onclick="addSchedRow('${sk.key}',${gi})">+ מרצה</button></div></div>`).join('');return`<div class="card" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="ct" style="margin:0">${sk.label}</div><button class="btn btn-sm btn-g" onclick="addSchedGroup('${sk.key}','${track}')">+ קבוצה</button></div>${grpHtml}</div>`;}).join('');}
-function updateSchedGroup(key,gi,field,val){if(!DB.schedule[key])DB.schedule[key]={groups:[]};if(!DB.schedule[key].groups[gi])DB.schedule[key].groups[gi]={name:val,rows:[]};DB.schedule[key].groups[gi][field]=val;saveDB();}
+function updateSchedGroup(key,gi,field,val){if(_v2SchedBlocked()){renderSchedEditor();return;}if(!DB.schedule[key])DB.schedule[key]={groups:[]};if(!DB.schedule[key].groups[gi])DB.schedule[key].groups[gi]={name:val,rows:[]};DB.schedule[key].groups[gi][field]=val;saveDB();}
 function calcTimeDiff(s,e){var sp=s.split(':'),ep=e.split(':');var diff=(parseInt(ep[0])*60+parseInt(ep[1]))-(parseInt(sp[0])*60+parseInt(sp[1]));return diff>0?diff/60:0;}
 function updateSchedRow(key,gi,ri,field,val){
+  if(_v2SchedBlocked()){renderSchedEditor();return;}
   if(!DB.schedule[key]||!DB.schedule[key].groups[gi]||!DB.schedule[key].groups[gi].rows[ri])return;
   var row=DB.schedule[key].groups[gi].rows[ri];
   row[field]=val;
@@ -3387,6 +3545,7 @@ function updateSchedRow(key,gi,ri,field,val){
   saveDB();
 }
 function removeSchedGroup(key,gi){
+  if(_v2SchedBlocked()){renderSchedEditor();return;}
   var sec=DB.schedule&&DB.schedule[key];
   if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]){ try{renderSchedEditor();}catch(e){} return; } // אינדקס מיושן → סנכרן מחדש, לא לשתוק
   var gname=(sec.groups[gi]&&sec.groups[gi].name)||'';
@@ -3395,6 +3554,7 @@ function removeSchedGroup(key,gi){
   saveDB();renderSchedEditor();
 }
 function removeSchedRow(key,gi,ri){
+  if(_v2SchedBlocked()){renderSchedEditor();return;}
   var sec=DB.schedule&&DB.schedule[key];
   if(!sec||!Array.isArray(sec.groups)||!sec.groups[gi]||!Array.isArray(sec.groups[gi].rows)||!sec.groups[gi].rows[ri]){ try{renderSchedEditor();}catch(e){} return; }
   if(!confirm('למחוק שורה זו מהמערכת?'))return;
@@ -3402,6 +3562,7 @@ function removeSchedRow(key,gi,ri){
   saveDB();renderSchedEditor();
 }
 function addSchedGroup(key,track){
+  if(_v2SchedBlocked())return;
   if(!DB.schedule[key])DB.schedule[key]={source:'sched',groups:[]};
   const grpList=getGrps(track);
   const name=grpList[0]||'קבוצה חדשה';
@@ -3414,7 +3575,7 @@ function addSchedGroup(key,track){
   saveDB();renderSchedEditor();
 }
 
-function addSchedRow(key,gi){if(DB.schedule[key]&&DB.schedule[key].groups[gi])DB.schedule[key].groups[gi].rows.push({lectId:'',start:'10:00',end:'11:00',payHrs:1.33});saveDB();renderSchedEditor();}
+function addSchedRow(key,gi){if(_v2SchedBlocked())return;if(DB.schedule[key]&&DB.schedule[key].groups[gi])DB.schedule[key].groups[gi].rows.push({lectId:'',start:'10:00',end:'11:00',payHrs:1.33});saveDB();renderSchedEditor();}
 function setupGroupContainerDrag(){const cont=document.getElementById('groups-container');if(cont._dragSetup)return;cont._dragSetup=true;let dr=null;cont.addEventListener('dragstart',e=>{const b=e.target.closest('.grp-block');if(b){dr=b;b.style.opacity='0.5';e.stopPropagation();}},{capture:true});cont.addEventListener('dragend',()=>{if(dr)dr.style.opacity='';dr=null;cont.querySelectorAll('.grp-block').forEach(b=>b.style.outline='');updateEntryDash();},{capture:true});cont.addEventListener('dragover',e=>{e.preventDefault();const b=e.target.closest('.grp-block');if(b&&b!==dr){cont.querySelectorAll('.grp-block').forEach(x=>x.style.outline='');b.style.outline='2px solid #10717E';const r=b.getBoundingClientRect();if(e.clientY<r.top+r.height/2)cont.insertBefore(dr,b);else cont.insertBefore(dr,b.nextSibling);}});}
 function onPrivLectChange(sel){const inl=document.getElementById('new-lect-inline');if(inl)inl.style.display=sel.value==='__new__'?'flex':'none';}
 function addLectFromPrivForm(){const name=document.getElementById('pf-nl-name')?.value.trim();const rate=parseInt(document.getElementById('pf-nl-rate')?.value)||0;const type=document.getElementById('pf-nl-type')?.value||'freelance_exempt';if(!name){alert('יש להזין שם');return;}const id=_uid('l_new_');DB.lecturers.push({id,name,track:'both',rate:0,ratePriv:rate,travel:0,management:0,type,bank:''});saveDB();const sel=document.getElementById('pf-l');if(sel){const opt=document.createElement('option');opt.value=id;opt.textContent=name;opt.selected=true;sel.insertBefore(opt,sel.querySelector('[value="__new__"]'));sel.value=id;document.getElementById('new-lect-inline').style.display='none';if(document.getElementById('pf-nl-name'))document.getElementById('pf-nl-name').value='';}}
@@ -4342,7 +4503,7 @@ function getGrps(track){return(DB.groups&&DB.groups[track])||[];}
 function studentTotalUsed(sid){return DB.privateLessons.filter(pl=>pl.studentId===sid&&pl.privApproval!=='rejected').reduce((s,pl)=>s+toAcad(pl.duration),0);}
 function studentEffectiveQuota(s){return s.usedOverride!=null?s.usedOverride:s.totalQuota;}
 
-function startLogin(role){if(role==='teacher'){enterApp('teacher');return;}if(role==='coord_m'||role==='coord_w'||role==='office'||role==='staff'){pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent=role==='office'?'מנהלת משרד':role==='coord_m'?'רכז מסלול גברים':role==='coord_w'?'רכזת מסלול נשים':'צוות מנהלי — דיווח שעות';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);return;}pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent='מנהל בית הספר';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);}
+function startLogin(role){if(role==='teacher'){alert('כניסת מרצה מושבתת זמנית (בתהליך שדרוג זהות ואבטחה). לניהול שיעורים פרטיים פנה/י לרכז/ת או למשרד.');return;}if(role==='coord_m'||role==='coord_w'||role==='office'||role==='staff'){pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent=role==='office'?'מנהלת משרד':role==='coord_m'?'רכז מסלול גברים':role==='coord_w'?'רכזת מסלול נשים':'צוות מנהלי — דיווח שעות';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);return;}pendingRole=role;document.getElementById('login-opts').classList.add('hidden');document.getElementById('pin-form').classList.remove('hidden');document.getElementById('pin-lbl').textContent='מנהל בית הספר';document.getElementById('pin-input').value='';document.getElementById('pin-err').textContent='';setTimeout(()=>document.getElementById('pin-input').focus(),50);}
 function backToOpts(){document.getElementById('login-opts').classList.remove('hidden');document.getElementById('pin-form').classList.add('hidden');pendingRole=null;}
 function submitPin(){
   const lockUntil=parseInt(sessionStorage.getItem('sh_lock')||'0');

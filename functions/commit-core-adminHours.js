@@ -44,7 +44,7 @@ function _prune(map, keep) {
   for (const k of drop) delete map[k];
   return map;
 }
-function _now(ctx) { return (ctx && ctx.now && ctx.now()) || 0; }
+function _now(ctx) { var n = ctx && ctx.now; return (typeof n === 'function' ? n() : n) || 0; } // accepts number (Function wrapper) OR fn (tests)
 function _clone(x) { return JSON.parse(JSON.stringify(x)); }
 function _auditId(at, opId) { return 'a' + String(at).padStart(15, '0') + '_' + opId; }
 function _eq(a, b) { return JSON.stringify(a) === JSON.stringify(b); }

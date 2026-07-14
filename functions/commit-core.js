@@ -31,7 +31,7 @@ function _prune(map, keep) {
   return map;
 }
 
-function _now(ctx) { return (ctx && ctx.now) || 0; } // injected; never Date.now() in the pure core
+function _now(ctx) { var n = ctx && ctx.now; return (typeof n === 'function' ? n() : n) || 0; } // number (Function wrapper) OR fn (tests); never Date.now() in the pure core
 
 // Result kinds returned to the Function wrapper:
 //   {kind:'commit', entity}         -> write `entity` back atomically, ACK committed

@@ -39,7 +39,7 @@ const OP_KEEP = 50, AUDIT_KEEP = 50;
 const ROW_FIELDS = ['lectId', 'start', 'end', 'payHrs', 'pay', 'courseName', 'note', 'ord']; // courseName: v1 schedule rows carry it (parity)
 
 function _prune(map, keep) { const ks = Object.keys(map || {}); if (ks.length <= keep) return map; ks.sort(); for (const k of ks.slice(0, ks.length - keep)) delete map[k]; return map; }
-function _now(ctx) { return (ctx && ctx.now && ctx.now()) || 0; }
+function _now(ctx) { var n = ctx && ctx.now; return (typeof n === 'function' ? n() : n) || 0; } // accepts number (Function wrapper) OR fn (tests)
 function _clone(x) { return JSON.parse(JSON.stringify(x)); }
 function _auditId(at, opId) { return 'a' + String(at).padStart(15, '0') + '_' + opId; }
 
