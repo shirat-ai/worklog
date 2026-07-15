@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260715b"></script>
-  <script src="v2-integration.js?v=20260715b"></script>
+  <script src="shirat-v2-bundle.js?v=20260715d"></script>
+  <script src="v2-integration.js?v=20260715d"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -864,7 +864,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260741;
+const APP_VERSION = 20260742;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -995,10 +995,16 @@ function renderAdminStaff(){
     </tr>`).join('');
 }
 
+// adminStaff — EXPLICIT command path (incident 2026-07-15). Edits/creates emit id-based typed
+// ops directly (never a generic whole-DB diff that could infer a phantom DELETE — this is how
+// אסתר דיב was silently deleted). Deletion is FROZEN: it is refused loudly, no local splice,
+// so the client can never diverge from the server on a record's existence.
+function _syncBaseRecord(coll,id,rec){try{if(_v2Base&&Array.isArray(_v2Base[coll])){const i=_v2Base[coll].findIndex(x=>x&&x.id===id);const c=rec?JSON.parse(JSON.stringify(rec)):null;if(i>=0){if(c)_v2Base[coll][i]=c;else _v2Base[coll].splice(i,1);}else if(c)_v2Base[coll].push(c);}}catch(e){}}
 function updateAdminField(idx,field,val){
-  if(!DB.adminStaff[idx])return;
-  DB.adminStaff[idx][field]=field==='rate'?parseFloat(val)||0:val;
-  saveDB();
+  const s=DB.adminStaff&&DB.adminStaff[idx];if(!s||!s.id)return;
+  s[field]=field==='rate'?parseFloat(val)||0:(field==='travel'?parseFloat(val)||0:val);
+  if(typeof USE_V2!=='undefined'&&USE_V2&&_v2){_v2.updateRecordFields('adminStaff',s.id,{[field]:s[field]});_v2Pending++;_syncBaseRecord('adminStaff',s.id,s);}
+  else saveDB();
 }
 
 function addAdminStaff(){
@@ -1007,15 +1013,18 @@ function addAdminStaff(){
   if(!name){alert('יש להזין שם');return;}
   const bank=[document.getElementById('na-bank')?.value||'',document.getElementById('na-branch')?.value||'',document.getElementById('na-acc')?.value||''].filter(Boolean).join('/');
   const email=(document.getElementById('na-email')?.value||'').trim();
-  DB.adminStaff.push({id:_uid('as_'),name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,travel:parseFloat(document.getElementById('na-travel')?.value)||0,type:document.getElementById('na-type')?.value||'employee',bank,email});
-  saveDB();renderAdminStaff();
+  const id=_uid('as_');
+  const rec={id,name,rate:parseFloat(document.getElementById('na-rate')?.value)||50,travel:parseFloat(document.getElementById('na-travel')?.value)||0,type:document.getElementById('na-type')?.value||'employee',bank,email};
+  if(typeof USE_V2!=='undefined'&&USE_V2&&_v2){const{id:_i,...patch}=rec;_v2.createRecord('adminStaff',id,patch);_v2Pending++;DB.adminStaff.push(rec);_syncBaseRecord('adminStaff',id,rec);logAction('הוספת עובד מנהלי',name);}
+  else{DB.adminStaff.push(rec);saveDB();}
+  renderAdminStaff();
   ['na-name','na-rate','na-bank','na-branch','na-acc','na-email'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
 
 function deleteAdminStaff(idx){
-  if(!confirm('למחוק עובד זה?'))return;
-  DB.adminStaff.splice(idx,1);
-  saveDB();renderAdminStaff();
+  const s=DB.adminStaff&&DB.adminStaff[idx];if(!s)return;
+  // FROZEN: destructive ops are refused server-side. Do NOT splice locally (would diverge).
+  alert('⚠️ מחיקת עובד מנהלי מושבתת זמנית (הגנה בעקבות אירוע מחיקה שגויה).\n\nכדי להסיר עובד — פנה/י אליי ואבצע זאת בנתיב-תיקון מבוקר ומתועד.');
 }
 
 // ── Admin Hours Entry Page ──────────────────────────────────
@@ -3233,7 +3242,7 @@ var USE_V2 = true;
 //   gen 1 = pre-2026-07-15 (buggy diff/identity: phantom deletes + ADD_ROW doubling).
 //   gen 2 = 2026-07-15 fix (no destructive inference, no baseline divergence, clientGen guard).
 var CLIENT_GEN = 2;
-var _v2 = null, _v2Base = {}, _v2Pending = 0, _v2StaffId = null;
+var _v2 = null, _v2Base = {}, _v2Pending = 0, _v2StaffId = null, _entryLoadedDay = null;
 // CONFIG-LANE: the protected, concurrency-hazard aggregates are v2-authoritative. But the
 // app also uses small, low-concurrency CONFIG that was never migrated and still lives in
 // v1 (track groups, quotas, activity log, notification-dedup flags, pay notes, backups
@@ -4607,12 +4616,12 @@ function renderDash(){
 function buildTimeSel(sel,val){sel.innerHTML='<option value="">--:--</option>'+TIMES.map(t=>`<option value="${t}"${t===val?' selected':''}>${t}</option>`).join('');if(val)sel.value=val;}
 function getLastEnd(gid){let last=null;document.querySelectorAll('#'+gid+' .lect-tbody tr').forEach(tr=>{const e=tr.querySelector('.t-end')?.value;if(e)last=e;});return last;}
 let gctr=0;
-function addGroup(name,rowsData){const track=document.getElementById('e-track').value;const gid='g'+(++gctr)+'_'+Date.now();const grps=getGrps(track);const grpName=name||(grps[0]||'קבוצה');const grpOpts=grps.map(g=>`<option value="${g}" style="color:var(--color-text-primary);background:var(--color-background-primary)"${g===grpName?' selected':''}>${g}</option>`).join('');const wrap=document.createElement('div');wrap.className='grp-block';wrap.id=gid;wrap.innerHTML=`<div class="grp-header"><select class="grp-sel" style="border:none;background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;font-size:13.5px;cursor:pointer;width:200px" onchange="updateEntryDash()">${grpOpts}</select><div style="display:flex;align-items:center;gap:6px"><span class="grp-total" style="font-size:12.5px;color:var(--color-text-secondary)"></span><button class="btn-del" onclick="document.getElementById('${gid}').remove();updateEntryDash()">×</button></div></div><div class="grp-body"><table style="table-layout:fixed;margin-bottom:6px"><thead><tr><th style="width:18px"></th><th style="width:112px">מרצה</th><th style="width:72px">התחלה</th><th style="width:72px">סיום</th><th style="width:76px">ש"ה</th><th>הערה</th><th style="width:24px"></th></tr></thead><tbody class="lect-tbody"></tbody></table><button class="btn btn-sm" style="font-size:12.5px" onclick="addLectRow('${gid}')">+ מרצה</button></div>`;document.getElementById('groups-container').appendChild(wrap);if(rowsData&&rowsData.length)rowsData.forEach(r=>addLectRow(gid,r));else addLectRow(gid);setupDrag(gid);setupGroupContainerDrag();updateEntryDash();}
-function addLectRow(gid,rd){const track=document.getElementById('e-track').value;const tbody=document.querySelector('#'+gid+' .lect-tbody');if(!tbody)return;const grpName=document.querySelector('#'+gid+' .grp-sel')?.value||'';const lastEnd=getLastEnd(gid);const ds=lastEnd?addMins(lastEnd,15):defStart(grpName);const tr=document.createElement('tr');tr.draggable=true;tr.innerHTML=`<td><span class="drag-handle">⠿</span></td><td><select class="lect-sel" style="width:104px;font-size:13.5px" onchange="updateEntryDash()">${buildLectOpts(track,rd&&rd.lectId)}</select></td><td><select class="t-start" style="width:67px;font-size:13.5px" onchange="calcRowAuto(this)"></select></td><td><select class="t-end" style="width:67px;font-size:13.5px" onchange="calcRowAuto(this)"></select></td><td><input class="pay-hrs" type="number" step="0.25" min="0" style="width:67px;font-size:13.5px" oninput="updateEntryDash()"></td><td><input type="text" class="row-note" placeholder="הערה..." style="font-size:13.5px"></td><td><button class="btn-del" onclick="this.closest('tr').remove();updateEntryDash()">×</button></td>`;tbody.appendChild(tr);const sv=(rd&&rd.start)||ds;buildTimeSel(tr.querySelector('.t-start'),sv);buildTimeSel(tr.querySelector('.t-end'),(rd&&rd.end)||'');if(rd){tr.querySelector('.pay-hrs').value=rd.payHrs||rd.pay||'';if(tr.querySelector('.row-note'))tr.querySelector('.row-note').value=rd.note||'';}}
+function addGroup(name,rowsData,egid){const track=document.getElementById('e-track').value;const gid='g'+(++gctr)+'_'+Date.now();const grps=getGrps(track);const grpName=name||(grps[0]||'קבוצה');const grpOpts=grps.map(g=>`<option value="${g}" style="color:var(--color-text-primary);background:var(--color-background-primary)"${g===grpName?' selected':''}>${g}</option>`).join('');const wrap=document.createElement('div');wrap.className='grp-block';wrap.id=gid;wrap.dataset.egid=egid||'';/* STABLE identity of an EXISTING group; blank = new (id assigned once on save) */wrap.innerHTML=`<div class="grp-header"><select class="grp-sel" style="border:none;background:var(--color-background-secondary);color:var(--color-text-primary);font-weight:500;font-size:13.5px;cursor:pointer;width:200px" onchange="updateEntryDash()">${grpOpts}</select><div style="display:flex;align-items:center;gap:6px"><span class="grp-total" style="font-size:12.5px;color:var(--color-text-secondary)"></span><button class="btn-del" onclick="document.getElementById('${gid}').remove();updateEntryDash()">×</button></div></div><div class="grp-body"><table style="table-layout:fixed;margin-bottom:6px"><thead><tr><th style="width:18px"></th><th style="width:112px">מרצה</th><th style="width:72px">התחלה</th><th style="width:72px">סיום</th><th style="width:76px">ש"ה</th><th>הערה</th><th style="width:24px"></th></tr></thead><tbody class="lect-tbody"></tbody></table><button class="btn btn-sm" style="font-size:12.5px" onclick="addLectRow('${gid}')">+ מרצה</button></div>`;document.getElementById('groups-container').appendChild(wrap);if(rowsData&&rowsData.length)rowsData.forEach(r=>addLectRow(gid,r));else addLectRow(gid);setupDrag(gid);setupGroupContainerDrag();updateEntryDash();}
+function addLectRow(gid,rd){const track=document.getElementById('e-track').value;const tbody=document.querySelector('#'+gid+' .lect-tbody');if(!tbody)return;const grpName=document.querySelector('#'+gid+' .grp-sel')?.value||'';const lastEnd=getLastEnd(gid);const ds=lastEnd?addMins(lastEnd,15):defStart(grpName);const tr=document.createElement('tr');tr.draggable=true;tr.dataset.erid=(rd&&rd.id)||'';/* STABLE identity of an EXISTING row; blank = new */tr.innerHTML=`<td><span class="drag-handle">⠿</span></td><td><select class="lect-sel" style="width:104px;font-size:13.5px" onchange="updateEntryDash()">${buildLectOpts(track,rd&&rd.lectId)}</select></td><td><select class="t-start" style="width:67px;font-size:13.5px" onchange="calcRowAuto(this)"></select></td><td><select class="t-end" style="width:67px;font-size:13.5px" onchange="calcRowAuto(this)"></select></td><td><input class="pay-hrs" type="number" step="0.25" min="0" style="width:67px;font-size:13.5px" oninput="updateEntryDash()"></td><td><input type="text" class="row-note" placeholder="הערה..." style="font-size:13.5px"></td><td><button class="btn-del" onclick="this.closest('tr').remove();updateEntryDash()">×</button></td>`;tbody.appendChild(tr);const sv=(rd&&rd.start)||ds;buildTimeSel(tr.querySelector('.t-start'),sv);buildTimeSel(tr.querySelector('.t-end'),(rd&&rd.end)||'');if(rd){tr.querySelector('.pay-hrs').value=rd.payHrs||rd.pay||'';if(tr.querySelector('.row-note'))tr.querySelector('.row-note').value=rd.note||'';}}
 function calcRowAuto(el){const tr=el.closest('tr');const s=tr.querySelector('.t-start').value,e=tr.querySelector('.t-end').value;if(s&&e){const d=gm(e)-gm(s);if(d>0)tr.querySelector('.pay-hrs').value=fmt(toAcad(d));}sortByTime(tr.closest('tbody'));updateEntryDash();}
 function sortByTime(tbody){const rows=[...tbody.querySelectorAll('tr')];rows.sort((a,b)=>{const sa=a.querySelector('.t-start')?.value||'',sb=b.querySelector('.t-start')?.value||'';if(!sa)return 1;if(!sb)return-1;return gm(sa)-gm(sb);});rows.forEach(r=>tbody.appendChild(r));}
 function setupDrag(gid){const tbody=document.querySelector('#'+gid+' .lect-tbody');if(!tbody)return;let dr=null;tbody.addEventListener('dragstart',e=>{dr=e.target.closest('tr');if(dr)dr.style.opacity='0.4';});tbody.addEventListener('dragend',()=>{if(dr)dr.style.opacity='';dr=null;tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('drag-over'));updateEntryDash();});tbody.addEventListener('dragover',e=>{e.preventDefault();const tr=e.target.closest('tr');if(tr&&tr!==dr){tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('drag-over'));tr.classList.add('drag-over');}});tbody.addEventListener('drop',e=>{e.preventDefault();const tr=e.target.closest('tr');if(tr&&tr!==dr&&dr)tbody.insertBefore(dr,tr);tbody.querySelectorAll('tr').forEach(r=>r.classList.remove('drag-over'));updateEntryDash();});}
-function getAllGroupData(){const res=[];document.querySelectorAll('.grp-block').forEach(div=>{const gn=div.querySelector('.grp-sel').value;const rows=[];div.querySelectorAll('.lect-tbody tr').forEach(tr=>{rows.push({grp:gn,lectId:tr.querySelector('.lect-sel').value,start:tr.querySelector('.t-start').value,end:tr.querySelector('.t-end').value,pay:parseFloat(tr.querySelector('.pay-hrs').value||0)||0,note:tr.querySelector('.row-note')?.value||''});});res.push({gid:div.id,grpName:gn,rows});});return res;}
+function getAllGroupData(){const res=[];document.querySelectorAll('.grp-block').forEach(div=>{const gn=div.querySelector('.grp-sel').value;const rows=[];div.querySelectorAll('.lect-tbody tr').forEach(tr=>{rows.push({grp:gn,erid:tr.dataset.erid||'',lectId:tr.querySelector('.lect-sel').value,start:tr.querySelector('.t-start').value,end:tr.querySelector('.t-end').value,pay:parseFloat(tr.querySelector('.pay-hrs').value||0)||0,note:tr.querySelector('.row-note')?.value||''});});res.push({gid:div.id,egid:div.dataset.egid||'',grpName:gn,rows});});return res;}
 function updateEntryDash(){const groups=getAllGroupData();let dt=0;const byL={},byG={};const track=document.getElementById('e-track').value;groups.forEach(g=>{let gt=0;g.rows.forEach(r=>{if(!r.pay)return;dt+=r.pay;gt+=r.pay;if(r.lectId){if(!byL[r.lectId])byL[r.lectId]=0;byL[r.lectId]+=r.pay;}});byG[g.grpName]=(byG[g.grpName]||0)+gt;const div=document.getElementById(g.gid);if(div){const t=div.querySelector('.grp-total');if(t)t.textContent=gt>0?fmt(gt)+' ש"ה':'';}});dt=Math.round(dt*100)/100;const dv=document.getElementById('e-date').value;let quota=null;if(dv){const dow=new Date(dv+'T12:00:00').getDay();quota=getQuota(dow,track);}const v=document.getElementById('ds-val'),s=document.getElementById('ds-sub'),qd=document.getElementById('quota-display');v.textContent=fmt(dt);if(quota){const over=dt>quota;v.style.color=over?'#A32D2D':'#10717E';s.textContent=over?'חריגה +'+fmt(dt-quota):fmt(quota-dt)+' פנוי';s.style.color=over?'#A32D2D':'var(--color-text-tertiary)';qd.innerHTML='שעות מאושרות: <strong style="color:'+(over?'#A32D2D':'#3B6D11')+'">'+(over?fmt(dt)+'/'+quota+' — חריגה!':quota+' ש"ה')+'</strong>';}else{v.style.color='#10717E';s.textContent='';qd.textContent='';}document.getElementById('ds-lects').innerHTML=Object.keys(byL).length?Object.entries(byL).map(([lid,h])=>{const l=getLect(lid);return`<div style="display:flex;justify-content:space-between;gap:4px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">${l?escH(l.name):escH(lid)}</span><span style="font-weight:500;color:#10717E;flex-shrink:0;font-size:12.5px">${fmt(h)}</span></div>`;}).join(''):'—';document.getElementById('ds-groups').innerHTML=Object.keys(byG).length?Object.entries(byG).map(([g,h])=>`<div style="display:flex;justify-content:space-between;gap:4px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px">${g}</span><span style="font-weight:500;color:#10717E;flex-shrink:0;font-size:12.5px">${fmt(h)}</span></div>`).join(''):'—';renderTimeline(groups);updateDayQuotaBar(groups,track);}
 function renderTimeline(groups){const cont=document.getElementById('tl-container');const vg=groups.filter(g=>g.rows.some(r=>r.lectId&&r.start&&r.end&&gm(r.end)>gm(r.start)));if(!vg.length){cont.innerHTML='<div style="font-size:12.5px;color:var(--color-text-secondary);margin-bottom:7px">הזן שעות להצגת ציר זמן</div>';return;}const allM=vg.flatMap(g=>g.rows.filter(r=>r.start&&r.end).flatMap(r=>[gm(r.start),gm(r.end)]));const minT=Math.min(...allM),maxT=Math.max(...allM),span=maxT-minT||60;const cmap={};let ci=0;vg.forEach(g=>g.rows.forEach(r=>{if(r.lectId&&!cmap[r.lectId]){cmap[r.lectId]=SEG_COLORS[ci%SEG_COLORS.length];ci++;}}));cont.innerHTML=vg.map(g=>{const tr=g.rows.filter(r=>r.lectId&&r.start&&r.end&&gm(r.end)>gm(r.start)).sort((a,b)=>gm(a.start)-gm(b.start));if(!tr.length)return'';const gt=tr.reduce((s,r)=>s+r.pay,0);const segs=tr.flatMap((r,i)=>{const s=gm(r.start),e=gm(r.end);const l=getLect(r.lectId);const name=l?l.name.split(' ')[0]:r.lectId;const color=cmap[r.lectId]||'#10717E';const lp=((s-minT)/span*100).toFixed(2),wp=((e-s)/span*100).toFixed(2);const arr=[];if(i>0){const pe=gm(tr[i-1].end);if(s>pe){const bl=((pe-minT)/span*100).toFixed(2),bw=((s-pe)/span*100).toFixed(2),bm=s-pe;arr.push(`<div style="position:absolute;right:${bl}%;width:${bw}%;height:100%;background:var(--color-background-tertiary);border-right:1.5px dashed var(--color-border-secondary);border-left:1.5px dashed var(--color-border-secondary);display:flex;align-items:center;justify-content:center"><span style="font-size:10px;color:var(--color-text-tertiary)">${parseFloat(bw)>4?bm+'ד׳':''}</span></div>`);}}arr.push(`<div style="position:absolute;right:${lp}%;width:${wp}%;height:100%;background:${color};display:flex;align-items:center;justify-content:center;overflow:hidden;padding:0 3px"><span style="font-size:11px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${name} ${fmt(r.pay)}</span></div>`);return arr;});return`<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:500;margin-bottom:3px"><span style="color:#10717E">${g.grpName}</span><span style="color:var(--color-text-secondary)">${fmt(gt)} ש"ה</span></div><div style="position:relative;height:22px;background:var(--color-background-primary);border-radius:3px;border:0.5px solid var(--color-border-tertiary);overflow:hidden">${segs.join('')}</div><div style="display:flex;justify-content:space-between;font-size:11px;color:var(--color-text-tertiary);margin-top:1px"><span>${tr[0].start}</span><span>${tr[tr.length-1].end}</span></div></div>`;}).join('');}
 // טעינת תוכן טופס-הרישום ליום+מסלול נתונים: יום-קיים מ-DB.days → אחרת מערכת-שעות קבועה → אחרת ריק
@@ -4623,10 +4632,13 @@ function _loadEntryDay(dateVal,track){
   const srcEl=document.getElementById('e-src-info');
   document.getElementById('groups-container').innerHTML='';
   const existingDay=DB.days.find(x=>x.date===dateVal&&x.track===track);
+  // remember the loaded day (WITH its ids) so the save emits EXPLICIT typed ops that preserve
+  // day/group/row identity — never re-derive an existing entity's id from DOM position.
+  _entryLoadedDay = (existingDay&&existingDay.groups&&existingDay.groups.length) ? JSON.parse(JSON.stringify(existingDay)) : null;
   if(existingDay&&existingDay.groups&&existingDay.groups.length){
     srcEl.className='al-i';srcEl.style.display='block';
     srcEl.innerHTML=`<span style="background:#E6F1FB;color:#0C447C;padding:1px 5px;border-radius:3px;font-size:12px;font-weight:500">יום קיים</span> נטען מהרישום הקודם (${existingDay.dayApproval==='approved'?'אושר':existingDay.dayApproval==='pending'?'ממתין':'—'})`;
-    existingDay.groups.forEach(g=>addGroup(g.name,g.rows));
+    existingDay.groups.forEach(g=>addGroup(g.name,g.rows,g.id));
   } else {
     const sched=DB.schedule&&DB.schedule[dow+'_'+track];
     if(sched&&sched.groups&&sched.groups.length){srcEl.className='al-i';srcEl.style.display='block';srcEl.innerHTML=`<span style="background:#E1F5EE;color:#085041;padding:1px 5px;border-radius:3px;font-size:12px;font-weight:500">מערכת שעות קבועה</span> נטענה אוטומטית`;sched.groups.forEach(g=>addGroup(g.name,g.rows));}else{srcEl.style.display='none';addGroup();}
@@ -4648,27 +4660,61 @@ function onTrackChange(){
   const val=document.getElementById('e-date').value;if(!val)return;
   _loadEntryDay(val,document.getElementById('e-track').value);
 }
+// EXPLICIT-COMMAND day save (incident 2026-07-15). The UI KNOWS what the user did, so we emit
+// EXPLICIT typed ops (CREATE_DAY / UPDATE_DAY_FIELDS / ADD_ROW / UPDATE_DAY_ROW / UNAPPROVE_DAY)
+// that PRESERVE identity — an existing day/group/row keeps its id; a NEW entity gets an id ONCE;
+// ids are NEVER re-derived from DOM position. No generic whole-DB snapshot diff for the days
+// write path. (Row deletion stays frozen for now — removed rows are kept + the user is warned.)
 function saveEntryDay(){
-  if(typeof USE_V2!=='undefined'&&USE_V2){ alert('⚠️ רישום/עריכת ימי-לימוד מושהה זמנית.\n\nזוהתה תקלת-כפילות ברישום ימים ואני מתקן אותה כעת. אנא אל תזין/י או תערוך/י ימי-לימוד עד להודעה. שאר חלקי המערכת (תשלומים, שיעורים פרטיים, שעות-מנהלה, אישורים) פעילים כרגיל.'); return; }
-  const dateVal=document.getElementById('e-date').value,track=document.getElementById('e-track').value;if(!dateVal){alert('יש לבחור תאריך');return;}if(isMonthLocked(dateVal.slice(0,7))){alert('חודש זה נעול.');return;}const groups=getAllGroupData().map(g=>({name:g.grpName,rows:g.rows.filter(r=>r.lectId).map(r=>({lectId:r.lectId,start:r.start,end:r.end,payHrs:r.pay,note:r.note}))})).filter(g=>g.rows.length);if(!groups.length){alert('יש להוסיף מרצה');return;}
-  // ── בדיקת שעות חלקיות (פתיחה ללא סגירה או להפך) ──
-  const _partialTime=groups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return(hS&&!hE)||(!hS&&hE);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+(r.start||'—')+' → '+(r.end||'—');}));
+  const dateVal=document.getElementById('e-date').value,track=document.getElementById('e-track').value;
+  if(!dateVal){alert('יש לבחור תאריך');return;}
+  if(isMonthLocked(dateVal.slice(0,7))){alert('חודש זה נעול.');return;}
+  const formGroups=getAllGroupData().map(g=>({egid:g.egid||'',name:g.grpName,rows:g.rows.filter(r=>r.lectId).map(r=>({erid:r.erid||'',lectId:r.lectId,start:r.start,end:r.end,payHrs:r.pay,note:r.note}))})).filter(g=>g.rows.length);
+  if(!formGroups.length){alert('יש להוסיף מרצה');return;}
+  const _partialTime=formGroups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return(hS&&!hE)||(!hS&&hE);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+(r.start||'—')+' → '+(r.end||'—');}));
   if(_partialTime.length){if(!confirm('⚠️ שים לב — '+_partialTime.length+' שורות עם שעה חלקית:\n'+_partialTime.join('\n')+'\n\nשורות אלו ישמרו עם 0 ש"ה. להמשיך?'))return;}
-  // ── בדיקת שעות כניסה+יציאה עם 0 ש"ה ──
-  const _timesNoHrs=groups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return hS&&hE&&(!r.payHrs||r.payHrs===0);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+r.start+'–'+r.end+' — 0 ש"ה';}));
+  const _timesNoHrs=formGroups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return hS&&hE&&(!r.payHrs||r.payHrs===0);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+r.start+'–'+r.end+' — 0 ש"ה';}));
   if(_timesNoHrs.length){if(!confirm('⚠️ '+_timesNoHrs.length+' שורות עם שעות רשומות אך 0 ש"ה:\n'+_timesNoHrs.join('\n')+'\n\nהמרצים לא יקבלו תשלום. להמשיך?'))return;}
-  const _zeroRows=groups.flatMap(g=>g.rows.filter(r=>!r.payHrs));
+  const _zeroRows=formGroups.flatMap(g=>g.rows.filter(r=>!r.payHrs));
   if(_zeroRows.length){if(!confirm(_zeroRows.length+' שורות עם 0 שעות. להמשיך?'))return;}
   const dow=new Date(dateVal+'T12:00:00').getDay();
-  const tp=Math.round(groups.reduce((s,g)=>s+g.rows.reduce((ss,r)=>ss+(r.payHrs||0),0),0)*100)/100;
+  const tp=Math.round(formGroups.reduce((s,g)=>s+g.rows.reduce((ss,r)=>ss+(r.payHrs||0),0),0)*100)/100;
   const schedTotal=getSchedTotalHrs(dow,track);
-  const yb={};groups.forEach(g=>{if(!yb[g.name])yb[g.name]=0;g.rows.forEach(r=>{yb[g.name]+=(r.payHrs||0);});});
-  // חריגות ברמת קבוצה
-  const grpOverages=[];groups.forEach(g=>{const gTotal=g.rows.reduce((s,r)=>s+(r.payHrs||0),0);const schedGrp=getSchedGroupHrs(dow,track,g.name);if(schedGrp&&gTotal>schedGrp)grpOverages.push(g.name+': '+fmt(gTotal)+'/'+fmt(schedGrp)+' ש״ה');});
+  const yb={};formGroups.forEach(g=>{if(!yb[g.name])yb[g.name]=0;g.rows.forEach(r=>{yb[g.name]+=(r.payHrs||0);});});
+  const grpOverages=[];formGroups.forEach(g=>{const gTotal=g.rows.reduce((s,r)=>s+(r.payHrs||0),0);const schedGrp=getSchedGroupHrs(dow,track,g.name);if(schedGrp&&gTotal>schedGrp)grpOverages.push(g.name+': '+fmt(gTotal)+'/'+fmt(schedGrp)+' ש״ה');});
   const overQuota=schedTotal?+Math.max(0,tp-schedTotal).toFixed(2):0;
-  const obj={id:_uid('day_'),date:dateVal,dow,track,irregular:!(TRACK_DAYS[track]||[]).includes(dow),enteredBy:currentRole,groups,totalPay:tp,quota:schedTotal||0,overQuota,yearBreakdown:yb,dayApproval:'pending',payApproval:'pending',savedAt:new Date().toISOString()};const ex=DB.days.findIndex(x=>x.date===dateVal&&x.track===track);if(ex>=0){const _prev=DB.days[ex];if(_prev.dayApproval==='approved'){const _pr=(_prev.groups||[]).reduce((s,g)=>s+(g.rows||[]).length,0);if(!confirm('⚠️ יום זה כבר אושר ('+_pr+' שורות, '+fmt(_prev.totalPay||0)+' ש"ה).\nשמירה תדרוס את הרישום המאושר ותבטל את האישור. להמשיך?'))return;}DB.days[ex]=obj;}else{logAction('רישום יום לימודים',dateVal+' — '+({m:'גברים',w:'נשים'}[track]||track));DB.days.push(obj);}DB.days.sort((a,b)=>b.date.localeCompare(a.date));saveDB();
+  const existing=DB.days.find(x=>x.date===dateVal&&x.track===track);
+  if(existing&&existing.dayApproval==='approved'){const _pr=(existing.groups||[]).reduce((s,g)=>s+(g.rows||[]).length,0);if(!confirm('⚠️ יום זה כבר אושר ('+_pr+' שורות, '+fmt(existing.totalPay||0)+' ש"ה).\nשמירה תדרוס את הרישום המאושר ותבטל את האישור. להמשיך?'))return;}
+  const dayId=existing?existing.id:_uid('day_');
+  // STABLE ids: preserve an existing entity's id; assign a fresh id ONCE to a new group/row.
+  const groupsWithIds=formGroups.map(g=>({id:g.egid||_uid('g_'),name:g.name,rows:g.rows.map(r=>({id:r.erid||_uid('r_'),lectId:r.lectId,start:r.start,end:r.end,payHrs:r.payHrs,note:r.note}))}));
+  const dayFields={date:dateVal,dow,track,irregular:!(TRACK_DAYS[track]||[]).includes(dow),enteredBy:currentRole,totalPay:tp,quota:schedTotal||0,overQuota,yearBreakdown:yb,savedAt:new Date().toISOString()};
+  let removedCount=0;
+  if(USE_V2&&_v2){
+    const loaded=existing?(_entryLoadedDay||existing):null;
+    // shared PURE planner (app-client/plan-day-save.js) → explicit typed ops that PRESERVE identity
+    const plan=window.planDaySaveOps(loaded,dayId,dayFields,groupsWithIds,loaded?loaded.dayApproval:null);
+    for(const o of plan.ops){
+      if(o.type==='CREATE_DAY'){_v2.createDay(o.entityId,o.patch,o.groups);logAction('רישום יום לימודים',dateVal+' — '+({m:'גברים',w:'נשים'}[track]||track));}
+      else if(o.type==='UPDATE_DAY_FIELDS')_v2.updateDayFields(o.entityId,o.patch);
+      else if(o.type==='UPDATE_DAY_ROW')_v2.updateDayRow(o.entityId,o.groupId,o.rowId,o.patch);
+      else if(o.type==='ADD_ROW')_v2.addRow(o.entityId,o.groupId,o.groupName,o.rowId,o.row);
+      else if(o.type==='UNAPPROVE_DAY')_v2.unapproveDay(o.entityId);
+      _v2Pending++;
+    }
+    removedCount=plan.removedRowIds.length;   // frozen: kept, not deleted
+  } else { // legacy fallback (USE_V2 always true in production)
+    const obj=Object.assign({id:dayId,dayApproval:'pending',payApproval:'pending'},dayFields,{groups:groupsWithIds});
+    const ex=DB.days.findIndex(x=>x.id===dayId);if(ex>=0)DB.days[ex]=obj;else DB.days.push(obj);saveDB();
+  }
+  // reflect locally + keep the diff baseline in sync so no other saveDB re-diffs this day
+  const localDay=Object.assign({id:dayId,dayApproval:'pending',payApproval:(existing&&existing.payApproval)||'pending'},dayFields,{groups:groupsWithIds.map(g=>({id:g.id,name:g.name,rows:g.rows.map(r=>Object.assign({},r))}))});
+  const exi=DB.days.findIndex(x=>x.id===dayId);if(exi>=0)DB.days[exi]=localDay;else DB.days.push(localDay);
+  DB.days.sort((a,b)=>b.date.localeCompare(a.date));
+  try{if(_v2Base&&Array.isArray(_v2Base.days)){const bi=_v2Base.days.findIndex(x=>x.id===dayId);const bc=JSON.parse(JSON.stringify(localDay));if(bi>=0)_v2Base.days[bi]=bc;else _v2Base.days.push(bc);}}catch(e){}
   let saveMsg='יום נשמר ✓';if(grpOverages.length)saveMsg='⚠ חריגה בקבוצות:\n'+grpOverages.join('\n');else if(overQuota>0)saveMsg='⚠ יום נשמר — חריגה כוללת: +'+fmt(overQuota)+' ש״ה';
-  alert(saveMsg);document.getElementById('groups-container').innerHTML='';updateEntryDash();}
+  if(removedCount)saveMsg+='\n\nℹ️ מחיקת שורות מושבתת זמנית — '+removedCount+' שורות שהוסרתָ נשמרו. לתיקון פנה/י אליי.';
+  alert(saveMsg);document.getElementById('groups-container').innerHTML='';_entryLoadedDay=null;updateEntryDash();}
 function buildPrivAlerts(month,cid){const alerts=DB.students.map(s=>{const quota=studentEffectiveQuota(s);if(!quota)return'';const usedBefore=Math.round((DB.privateLessons||[]).filter(pl=>pl.studentId===s.id&&pl.privApproval!=='rejected'&&pl.date.slice(0,7)<month).reduce((sum,pl)=>sum+toAcad(pl.duration),0)*100)/100;const usedThisMonth=Math.round((DB.privateLessons||[]).filter(pl=>pl.studentId===s.id&&pl.privApproval!=='rejected'&&pl.date.startsWith(month)).reduce((sum,pl)=>sum+toAcad(pl.duration),0)*100)/100;const openingBal=Math.max(0,quota-usedBefore);const remaining=Math.round((openingBal-usedThisMonth)*100)/100;if(remaining<0)return`<div class="al-alert">${escH(s.name)} — חריג: השתמש ב-${fmt(usedThisMonth)} מתוך ${fmt(openingBal)} ש"ה פתיחה</div>`;if(openingBal<=0&&usedThisMonth>0)return`<div class="al-alert">${escH(s.name)} — ללא מכסה זמינה החודש (מכסה כוללת מוצתה)</div>`;if(openingBal>0&&remaining/openingBal<=0.1&&openingBal>0)return`<div class="al-w">${escH(s.name)} — נותר ${fmt(remaining)} ש"ה מתוך ${fmt(openingBal)}</div>`;return'';}).join('');document.getElementById(cid).innerHTML=alerts;}
 function renderPrivate(){
   // בניית dropdown חודשים דינמית
