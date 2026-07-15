@@ -870,7 +870,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260744;
+const APP_VERSION = 20260745;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3277,6 +3277,7 @@ function _v2ApplyDB(assembled){
     _v2MergeConfig();                          // overlay the v1-resident config so the UI has groups/quotas/etc.
     _v2Base = JSON.parse(JSON.stringify(DB));  // baseline is EXACTLY the applied DB (incl. merged config) — no divergence
     _loadOK = true;
+    try { sessionStorage.removeItem('sh_bootretry'); } catch(e){}   // boot reached live data → reset transient-retry counter
     var l = document.getElementById('fb-loader'); if (l) l.style.display = 'none';
     if (currentRole) { try { _rerenderCurrentPage(); } catch(e){} }
   }
@@ -3343,7 +3344,17 @@ function _v2Boot(){
       }).catch(function(){ if(err) err.textContent='שגיאת התחברות — נסה/י שוב'; });
     };
     _v2EmailLinkReturn();
-  } catch(e){ console.error('v2 boot failed', e); alert('שגיאת אתחול המערכת — נסה/י לרענן'); }
+  } catch(e){ console.error('v2 boot failed', e);
+    // Transient init failure (Firebase/App-Check token race, network hiccup, or a mid-deploy
+    // cache moment). A clean reload almost always succeeds, so auto-reload SILENTLY up to twice
+    // before ever showing a modal — users must never hit a dead "system error" popup for a
+    // passing hiccup. The counter is cleared in _v2ApplyDB once live data actually loads.
+    var _bn=0; try{ _bn=+sessionStorage.getItem('sh_bootretry')||0; }catch(_e){}
+    if(_bn<2){ try{ sessionStorage.setItem('sh_bootretry', _bn+1); }catch(_e){}
+      setTimeout(function(){ try{ location.replace(location.pathname+'?b='+Date.now()); }catch(_e){ try{ location.reload(); }catch(__e){} } }, 700); }
+    else { try{ sessionStorage.removeItem('sh_bootretry'); }catch(_e){}
+      alert('שגיאת אתחול זמנית. רענן/י בבקשה (Ctrl+F5). אם זה חוזר — פנה/י אליי. הנתונים בטוחים בענן.'); }
+  }
 }
 // ── login rewiring: claimRole (server-verified) instead of client-side PIN ──
 function _v2Login(role, pin){
