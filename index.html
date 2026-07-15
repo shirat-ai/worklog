@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260715e"></script>
-  <script src="v2-integration.js?v=20260715e"></script>
+  <script src="shirat-v2-bundle.js?v=20260715f"></script>
+  <script src="v2-integration.js?v=20260715f"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -629,6 +629,12 @@ function _mergeKey(key, serverVal, shadowStr, myVal){
   return myVal; // סקלר / מערך-ללא-id → שלי גובר (נדיר)
 }
 function _pushDirty(attempt){
+  // V2 GUARD (incident 2026-07-15, 3rd pass): the legacy shirat_v1 write funnel is DISABLED in
+  // v2. All protected writes are typed ops via submitOperation. If this ran in v2 it would diff
+  // DB against a stale/empty v1 shadow, push the WHOLE DB to shirat_v1, get denied by the deny-
+  // legacy rules, and _onWriteRejected would overwrite DB with the stale v1 tree — making every
+  // day created in v2 (e.g. 30/7 + the repair records) disappear from the screen. NEVER run here.
+  if (typeof USE_V2!=='undefined' && USE_V2) return Promise.resolve();
   attempt=attempt||0;
   // חוסם-אב: אין לכתוב לפני שטעינה מהשרת הצליחה — אחרת ברירת-המחדל הקשיחה (עובדים/שעות ריקים) תידחף מעל הנתונים החיים.
   if(!_loadOK){ console.warn('_pushDirty נחסם — טעינה טרם הושלמה'); _fbIgnoreNext=false; return Promise.resolve(); }
@@ -864,7 +870,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260743;
+const APP_VERSION = 20260744;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3072,6 +3078,11 @@ function loadDB() {
 
 function _applySnapshot(p) {
   if (!p) return;
+  // V2 GUARD (incident 2026-07-15, 3rd pass): in v2, DB is owned SOLELY by the shirat_v2 snapshot
+  // listener (_v2ApplyDB). This v1-era function must NEVER overwrite the v2-authoritative
+  // aggregates (days/lecturers/adminStaff/…) from the stale shirat_v1 tree — that is exactly what
+  // made 30/7 and the repair records vanish from the approval screen after a v1-write rejection.
+  if (typeof USE_V2!=='undefined' && USE_V2) return;
   if (typeof p._rev === 'number') _serverRev = p._rev; // עדכון מונה-הגרסה ממצב-השרת
 
   ['codes','lecturers','students','days','privateLessons','quotas','groups',
