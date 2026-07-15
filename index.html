@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260714b"></script>
-  <script src="v2-integration.js?v=20260714b"></script>
+  <script src="shirat-v2-bundle.js?v=20260715b"></script>
+  <script src="v2-integration.js?v=20260715b"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -3227,6 +3227,12 @@ function _resetSessionTimer(){
 // redeploy the previous index.html (git) + republish server-pipeline/rules-v2-STAGE1.json;
 // clean backup at backups/shirat_v1_CLEAN_2026-07-14T17-49-47-329Z.json.
 var USE_V2 = true;
+// CLIENT_GEN — build generation of the write path. BUMP whenever a client-side write/identity
+// bug is fixed. The server (MIN_CLIENT_GEN) refuses ops from any lower generation, and the
+// outbox quarantines them on load, so stale ops from a buggy build can never replay.
+//   gen 1 = pre-2026-07-15 (buggy diff/identity: phantom deletes + ADD_ROW doubling).
+//   gen 2 = 2026-07-15 fix (no destructive inference, no baseline divergence, clientGen guard).
+var CLIENT_GEN = 2;
 var _v2 = null, _v2Base = {}, _v2Pending = 0, _v2StaffId = null;
 // CONFIG-LANE: the protected, concurrency-hazard aggregates are v2-authoritative. But the
 // app also uses small, low-concurrency CONFIG that was never migrated and still lives in
@@ -3241,11 +3247,15 @@ var _v2Config = {};
 function _v2MergeConfig(){ for (var i=0;i<_V2_CFG_READ.length;i++){ var k=_V2_CFG_READ[i]; if(_v2Config[k]!==undefined && DB) DB[k]=_v2Config[k]; } }
 function _v2ApplyDB(assembled){
   if (!assembled) return;
-  _v2Base = JSON.parse(JSON.stringify(assembled));
-  if (_v2Pending <= 0) {                       // rebuild the in-memory DB only when no local edits are in-flight
+  // INCIDENT FIX (2026-07-15): the diff baseline (_v2Base) and DB must NEVER diverge, or a
+  // subsequent saveDB diffs a mismatched pair and emits SPURIOUS ops (a phantom DELETE when
+  // the baseline holds a record DB lacks — exactly how adminStaff/Esther was deleted; and
+  // spurious ADD_ROW when a snapshot advanced the baseline). So we ONLY sync from a snapshot
+  // when NO local op is in-flight, and we set _v2Base = the SAME DB we just applied.
+  if (_v2Pending <= 0) {
     DB = JSON.parse(JSON.stringify(assembled));
     _v2MergeConfig();                          // overlay the v1-resident config so the UI has groups/quotas/etc.
-    for (var i=0;i<_V2_CFG_READ.length;i++){ var k=_V2_CFG_READ[i]; if(_v2Config[k]!==undefined) _v2Base[k]=JSON.parse(JSON.stringify(_v2Config[k])); }
+    _v2Base = JSON.parse(JSON.stringify(DB));  // baseline is EXACTLY the applied DB (incl. merged config) — no divergence
     _loadOK = true;
     var l = document.getElementById('fb-loader'); if (l) l.style.display = 'none';
     if (currentRole) { try { _rerenderCurrentPage(); } catch(e){} }
@@ -3259,6 +3269,10 @@ function _v2Boot(){
       transport: I.makeHttpTransport(firebase),
       clock: function(){ return Date.now(); },
       genId: function(){ try { return firebase.database().ref().push().key; } catch(e){ return 'op'+Date.now()+Math.random().toString(36).slice(2); } },
+      clientGen: CLIENT_GEN,                       // gen 2 = post identity/diff fix; server rejects anything below
+      maxPending: 25,                              // ANOMALY: >25 pending ops on load ⇒ quarantine the whole queue (stops the 376 batch)
+      maxAgeMs: 60*60*1000,                        // ANOMALY: op older than 1h ⇒ stale ⇒ quarantine (the 376 were ~15h old)
+      onQuarantine: function(list, byType, reasons){ try { console.warn('v2 outbox QUARANTINED', list.length, byType, reasons); localStorage.setItem('sh_quarantine_'+Date.now(), JSON.stringify({at:Date.now(), reasons:reasons, byType:byType, ops:list})); if((list||[]).length) { try{ alert('⚠️ זוהתה תור-פעולות חריג ('+list.length+') והוא נעצר אוטומטית לבטיחות הנתונים. לא בוצע שינוי. אם חסר לך מידע — פנה אליי.'); }catch(e){} } } catch(e){} },
       onCommitted: function(){ if(_v2Pending>0)_v2Pending--; },
       onConflict: function(){ if(_v2Pending>0)_v2Pending--; try{ _notifyConflict(); }catch(e){} if(_v2)_v2ApplyDB(_v2.assembleDB()); },
       onError: function(rec, info){ if(_v2Pending>0)_v2Pending--; if(info&&info.message)console.warn('v2:', info.message); },
@@ -4634,7 +4648,9 @@ function onTrackChange(){
   const val=document.getElementById('e-date').value;if(!val)return;
   _loadEntryDay(val,document.getElementById('e-track').value);
 }
-function saveEntryDay(){const dateVal=document.getElementById('e-date').value,track=document.getElementById('e-track').value;if(!dateVal){alert('יש לבחור תאריך');return;}if(isMonthLocked(dateVal.slice(0,7))){alert('חודש זה נעול.');return;}const groups=getAllGroupData().map(g=>({name:g.grpName,rows:g.rows.filter(r=>r.lectId).map(r=>({lectId:r.lectId,start:r.start,end:r.end,payHrs:r.pay,note:r.note}))})).filter(g=>g.rows.length);if(!groups.length){alert('יש להוסיף מרצה');return;}
+function saveEntryDay(){
+  if(typeof USE_V2!=='undefined'&&USE_V2){ alert('⚠️ רישום/עריכת ימי-לימוד מושהה זמנית.\n\nזוהתה תקלת-כפילות ברישום ימים ואני מתקן אותה כעת. אנא אל תזין/י או תערוך/י ימי-לימוד עד להודעה. שאר חלקי המערכת (תשלומים, שיעורים פרטיים, שעות-מנהלה, אישורים) פעילים כרגיל.'); return; }
+  const dateVal=document.getElementById('e-date').value,track=document.getElementById('e-track').value;if(!dateVal){alert('יש לבחור תאריך');return;}if(isMonthLocked(dateVal.slice(0,7))){alert('חודש זה נעול.');return;}const groups=getAllGroupData().map(g=>({name:g.grpName,rows:g.rows.filter(r=>r.lectId).map(r=>({lectId:r.lectId,start:r.start,end:r.end,payHrs:r.pay,note:r.note}))})).filter(g=>g.rows.length);if(!groups.length){alert('יש להוסיף מרצה');return;}
   // ── בדיקת שעות חלקיות (פתיחה ללא סגירה או להפך) ──
   const _partialTime=groups.flatMap(g=>g.rows.filter(r=>{const hS=r.start&&r.start!=='00:00';const hE=r.end&&r.end!=='00:00';return(hS&&!hE)||(!hS&&hE);}).map(r=>{const l=getLect(r.lectId);return(l?l.name:r.lectId)+' ('+g.name+'): '+(r.start||'—')+' → '+(r.end||'—');}));
   if(_partialTime.length){if(!confirm('⚠️ שים לב — '+_partialTime.length+' שורות עם שעה חלקית:\n'+_partialTime.join('\n')+'\n\nשורות אלו ישמרו עם 0 ש"ה. להמשיך?'))return;}

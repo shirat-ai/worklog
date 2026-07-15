@@ -19,6 +19,7 @@ const https = require('https');
 const admin = require('firebase-admin');
 admin.initializeApp({ databaseURL: 'https://shirat1-default-rtdb.firebaseio.com' });
 const { routeOp, authorize, ownershipOk, resolveStaffByEmail } = require('./dispatch.js');
+const { burstStep, rowCapExceeded, historicalDaysBlocked } = require('./anomaly.js');
 
 const DB_ROOT = 'shirat_v2';   // legacy shirat_v1 stays read-only during migration
 
@@ -112,6 +113,31 @@ exports.submitOperation = onRequest(async (req, res) => {
 
     const op = req.body && req.body.op;
 
+    // ── STALE-CLIENT-GENERATION GUARD (incident 2026-07-15): ops created by a client build
+    //    BEFORE the identity/diff fix carry phantom deletes / duplicate ADD_ROWs and may sit
+    //    for hours in some browser's outbox before replaying. Every op from the fixed client
+    //    carries op.clientGen >= MIN_CLIENT_GEN; anything below (or missing) is refused so a
+    //    stale outbox on ANY device/tab cannot corrupt data. Already-committed ops are also
+    //    naturally deduped by opId, but this rejects them at the gate.
+    const MIN_CLIENT_GEN = 2;
+    if (!op || (op.clientGen | 0) < MIN_CLIENT_GEN) {
+      return res.status(403).json({ status: 'forbidden', code: 'STALE_CLIENT_GENERATION' });
+    }
+
+    // ── INCIDENT FREEZE (2026-07-15): a DELETE_RECORD was executed for adminStaff/Esther
+    //    with NO human delete intent — suspected client-generated destructive op from a
+    //    stale/rebuilt local DB (same family as the days duplication). Until root cause is
+    //    proven, REJECT every destructive/structure-removing op SERVER-SIDE. Non-destructive
+    //    create/update/approve/read continue. Remove only after the explicit-delete contract
+    //    is in place. This cannot be bypassed by any client.
+    const DESTRUCTIVE_FROZEN = new Set([
+      'DELETE_RECORD', 'DELETE_LECTURER', 'DELETE_DAY', 'REMOVE_ROW',
+      'DELETE_SET', 'REMOVE_SLOT_ROW', 'DELETE_MONTH', 'REPLACE_MONTH', 'REMOVE_DAY',
+    ]);
+    if (op && DESTRUCTIVE_FROZEN.has(op.type)) {
+      return res.status(403).json({ status: 'forbidden', code: 'DESTRUCTIVE_FROZEN' });
+    }
+
     // 3) Route + validate (allowlist type/collection, validate path components — NO
     //    arbitrary client paths, no traversal). One route or a hard reject.
     const route = routeOp(op);
@@ -124,10 +150,26 @@ exports.submitOperation = onRequest(async (req, res) => {
     if (!authz.ok) return res.status(403).json({ status: 'forbidden', code: authz.code });
     if (!ownershipOk(role, claims, op, route)) return res.status(403).json({ status: 'forbidden', code: 'NOT_OWN_DATA' });
 
+    // 4b) ANOMALY CONTAINMENT (incident 2026-07-15). Manual-entry system → a burst is an anomaly.
+    const node = route.node, nowMs = Date.now();
+    //  (i) aggregate kill-switch — a frozen aggregate blocks ONLY its own writes.
+    const frozen = await dbGet(`${DB_ROOT}/_frozen/${node}`);
+    if (frozen && frozen.frozen) return res.status(423).json({ status: 'frozen', code: 'AGGREGATE_FROZEN', reason: frozen.reason });
+    //  (ii) historical-days guard — no bulk restructuring of old days via the normal path.
+    if (historicalDaysBlocked(op, route, nowMs)) return res.status(403).json({ status: 'forbidden', code: 'HISTORICAL_DAYS_BLOCKED' });
+    //  (iii) per-uid burst circuit-breaker — on trip, freeze THIS aggregate + write an alert.
+    let burst;
+    await dbTransaction(`${DB_ROOT}/_rate/${uid}`, (st) => { burst = burstStep(st, op.entityId, nowMs); return burst.state; });
+    if (burst && burst.tripped) {
+      await dbTransaction(`${DB_ROOT}/_frozen/${node}`, () => ({ frozen: true, reason: 'ANOMALY_' + burst.reason, uid, at: nowMs }));
+      await dbTransaction(`${DB_ROOT}/_alerts/${op.opId}`, () => ({ at: nowMs, uid, role, aggregate: node, entity: op.entityId, opType: op.type, count: burst.state.count, entityCount: burst.state.entities.length, reason: burst.reason, clientGen: op.clientGen, decision: 'BLOCKED_AND_FROZEN' }));
+      return res.status(429).json({ status: 'anomaly', code: 'ANOMALY_BURST', reason: burst.reason });
+    }
+
     // 5) Atomic CAS + dedupe + audit in ONE ETag transaction on the resolved aggregate root.
-    const nowMs = Date.now();
     let outcome = null;
     const txn = await dbTransaction(`${DB_ROOT}/${route.path}`, (entity) => {   // entities/<node>/<entityId>, both validated
+      if (op.type === 'ADD_ROW' && rowCapExceeded(entity)) { outcome = { kind: 'error', code: 'ANOMALY_ROW_CAP' }; return undefined; }  // semantic guard
       const r = route.core(entity, { ...op, actor: { uid, role } }, { now: nowMs });
       outcome = r;
       if (r.kind === 'commit') return r.entity;   // write back atomically
