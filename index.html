@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260715d"></script>
-  <script src="v2-integration.js?v=20260715d"></script>
+  <script src="shirat-v2-bundle.js?v=20260715e"></script>
+  <script src="v2-integration.js?v=20260715e"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -673,7 +673,7 @@ function _pushDirty(attempt){
 }
 let _writeRejectNoticeAt=0;
 // התראת-קונפליקט (מווסתת): מוצגת כשעריכה מקומית נזנחה לטובת מצב-השרת. שקוף למשתמש — לעולם לא אובדן שקט.
-function _notifyConflict(){ var now=Date.now(); if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('⚠️ הנתונים עודכנו ממכשיר אחר והמסך רוענן.\nאם ביצעת שינוי כרגע — ודא/י שנקלט, וחזור/י עליו אם צריך.'); }catch(e){} } }
+function _notifyConflict(){ var now=Date.now(); if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ המסך רוענן עם עדכון ממשתמש אחר. כל מה שכבר נשמר — בטוח בענן ולא אבד.\nאם הזנת משהו בשניות האחרונות, הצץ/י שהוא מופיע (ואם לא — פשוט שמור/י שוב).'); }catch(e){} } }
 function _onWriteRejected(err){
   const info=((err&&err.code)||'')+' '+((err&&err.message)||'');
   console.warn('Firebase write rejected — re-syncing:', info);
@@ -684,7 +684,7 @@ function _onWriteRejected(err){
     _rerenderCurrentPage();
   }).catch(()=>{});
   const now=Date.now();
-  if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('⚠️ הנתונים עודכנו ממכשיר אחר והמסך רוענן.\nאם ביצעת שינוי כרגע — ודא/י שנקלט, וחזור/י עליו אם צריך.'); }catch(e){} }
+  if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ המסך רוענן עם עדכון ממשתמש אחר. כל מה שכבר נשמר — בטוח בענן ולא אבד.\nאם הזנת משהו בשניות האחרונות, הצץ/י שהוא מופיע (ואם לא — פשוט שמור/י שוב).'); }catch(e){} }
 }
 function _rerenderCurrentPage(){
   if(!currentRole)return;
@@ -864,7 +864,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260742;
+const APP_VERSION = 20260743;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3281,7 +3281,7 @@ function _v2Boot(){
       clientGen: CLIENT_GEN,                       // gen 2 = post identity/diff fix; server rejects anything below
       maxPending: 25,                              // ANOMALY: >25 pending ops on load ⇒ quarantine the whole queue (stops the 376 batch)
       maxAgeMs: 60*60*1000,                        // ANOMALY: op older than 1h ⇒ stale ⇒ quarantine (the 376 were ~15h old)
-      onQuarantine: function(list, byType, reasons){ try { console.warn('v2 outbox QUARANTINED', list.length, byType, reasons); localStorage.setItem('sh_quarantine_'+Date.now(), JSON.stringify({at:Date.now(), reasons:reasons, byType:byType, ops:list})); if((list||[]).length) { try{ alert('⚠️ זוהתה תור-פעולות חריג ('+list.length+') והוא נעצר אוטומטית לבטיחות הנתונים. לא בוצע שינוי. אם חסר לך מידע — פנה אליי.'); }catch(e){} } } catch(e){} },
+      onQuarantine: function(list, byType, reasons){ try { console.warn('v2 outbox QUARANTINED', list.length, byType, reasons); localStorage.setItem('sh_quarantine_'+Date.now(), JSON.stringify({at:Date.now(), reasons:reasons, byType:byType, ops:list})); if((list||[]).length) { try{ console.info('נוקו '+list.length+' פעולות-רקע ישנות מגרסה קודמת (לא נשלחו). לא אבד מידע חדש.'); }catch(e){} } } catch(e){} },
       onCommitted: function(){ if(_v2Pending>0)_v2Pending--; },
       onConflict: function(){ if(_v2Pending>0)_v2Pending--; try{ _notifyConflict(); }catch(e){} if(_v2)_v2ApplyDB(_v2.assembleDB()); },
       onError: function(rec, info){ if(_v2Pending>0)_v2Pending--; if(info&&info.message)console.warn('v2:', info.message); },
