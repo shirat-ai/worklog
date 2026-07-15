@@ -775,6 +775,10 @@ function _restoreFromMirror(){
 // שכבה 6: גיבויים אוטומטיים מתגלגלים ב-Firebase (/backups). ניתן-לשחזור תמיד. חסין מכל וקטור בלתי-צפוי.
 var _lastBackupAt=0;
 function _maybeBackup(force){
+  // V2 GUARD (audit 2026-07-15): in v2 this wrote the whole DB into shirat_v1/backups — a v1
+  // write with no consumer (restore/import are disabled) and a needless surface. v2 is server-
+  // authoritative (shirat_v2) with REST snapshots for recovery, so no client-side v1 backup.
+  if (typeof USE_V2!=='undefined' && USE_V2) return;
   try{
     if(typeof fbDB==='undefined'||!fbDB)return;
     var now=Date.now();
@@ -787,6 +791,7 @@ function _maybeBackup(force){
   }catch(e){}
 }
 function _pruneBackups(){
+  if (typeof USE_V2!=='undefined' && USE_V2) return;   // V2: no client-side v1/backups (see _maybeBackup)
   try{
     fbDB.ref(FB_PATH+'/backups').once('value').then(function(s){
       var b=s.val()||{}; var ids=Object.keys(b).sort(); var KEEP=40;
@@ -803,6 +808,7 @@ function _critCounts(src){ var c={}; Object.keys(_CRIT).forEach(function(k){ c[k
 
 // גיבוי המצב **הקודם** (מהצל = מה שהיה בשרת לפני השינוי הנוכחי) — כדי שדריסה/מחיקה תהיה תמיד ניתנת-לשחזור.
 function _backupPriorState(tag,note){
+  if (typeof USE_V2!=='undefined' && USE_V2) return;   // V2: no client-side v1/backups (see _maybeBackup)
   try{
     if(typeof fbDB==='undefined'||!fbDB)return;
     var snap={}; _BACKUP_KEYS.forEach(function(k){ var s=_dbShadow[k]; if(s!==undefined){ try{ snap[k]=JSON.parse(s); }catch(e){} } });
@@ -870,7 +876,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260745;
+const APP_VERSION = 20260746;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -3827,6 +3833,10 @@ function exportBackup(){
   a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 function importBackup(input){
+  // V2 GUARD (audit 2026-07-15): importing a full-DB backup does DB[k]=data.DB[k] then saveDB()
+  // → diffToOps emits a MASS typed-op overwrite of live shirat_v2 data from a file. Same HIGH
+  // risk as restoreCloudBackup. Disabled — full-restore is a controlled, reversible REST repair.
+  if (typeof USE_V2!=='undefined' && USE_V2){ if(input)input.value=''; alert('ייבוא גיבוי-מלא דרך הממשק מושבת בגרסת-השרת (הוא היה דורס את כל הנתונים החיים).\n\nלשחזור/ייבוא מבוקר — פנה/י אליי.'); return; }
   const file=input.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=e=>{
@@ -5235,7 +5245,12 @@ function updateAdminSupplement(pKey,val){if(!DB.payOverrides)DB.payOverrides={};
 function updatePayStatus(key,val){if(!DB.payStatuses)DB.payStatuses={};DB.payStatuses[key]=val;if(val==='done'){if(!DB.payDoneDates)DB.payDoneDates={};if(!DB.payDoneDates[key])DB.payDoneDates[key]=new Date().toISOString().split('T')[0];}const lid=key.split('_').slice(1).join('_');const l=getLect(lid);const stLbl={'approved':'אושר','done':'שולם','received':'שולם + קבלה / חשבונית','pending':'ממתין לאישור'}[val]||val;logAction('עדכון סטטוס תשלום',stLbl+' — '+(l?l.name:lid));saveDB();renderMonthly();if(val==='done')_offerPaymentEmail([key],[]);}
 function exportPayroll(){const month=document.getElementById('m-month').value;const lines=['שם,ש"ה,שכר,ניהול,נסיעות'];DB.lecturers.filter(l=>l.type==='employee').forEach(l=>{const c=calcLect(l.id,month);if(!c)return;lines.push(`${escH(l.name)},${fmt(c.hrs)},${Math.round(c.base)},${Math.round(c.management)},${Math.round(c.travel)}`);});getAdminMonthlyRows(month).filter(r=>r.type==='employee').forEach(r=>{const pKey=month+'_adm_'+r.id;const st=(DB.payStatuses||{})[pKey];if(st==='approved'||st==='done')lines.push(`${r.name},${r.hrs},${r.total},0,0`);});alert('שכירים להנה״ח:\n\n'+lines.join('\n'));}
 
-function saveCode(role){const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
+function saveCode(role){
+  // V2 GUARD (audit 2026-07-15): in v2 `codes` is NOT read into DB (DB.codes = seed default), so
+  // writing it here would push SEED pins over the real shirat_v1/codes and risk a lockout. PIN
+  // changes are a server-verified concern (claimRole reads codes). Disabled in the client.
+  if (typeof USE_V2!=='undefined' && USE_V2){ alert('שינוי קוד-כניסה דרך הממשק מושבת בגרסת-השרת. לשינוי PIN — פנה/י אליי.'); return; }
+  const val=document.getElementById('code-'+role).value;if(!val||val.length<3){alert('קוד חייב להיות לפחות 3 ספרות');return;}DB.codes[role]=val;fbDB.ref(FB_PATH+'/codes/'+role).set(val);document.getElementById('code-'+role).value='';alert('קוד עודכן ✓');}
 function saveBackupEmail(){const v=(document.getElementById('backup-email').value||'').trim();if(v&&!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)){alert('כתובת מייל לא תקינה');return;}DB.backupEmail=v||BACKUP_EMAIL_DEFAULT;saveDB();_initBackupUI();alert('נמען הגיבוי עודכן: '+DB.backupEmail);}
 function _initBackupUI(){const e=document.getElementById('backup-email');if(e)e.value=DB.backupEmail||BACKUP_EMAIL_DEFAULT;const l=document.getElementById('backup-last');if(l)l.textContent=DB.lastWeeklyBackup?('גיבוי אחרון: '+new Date(DB.lastWeeklyBackup).toLocaleString('he-IL')):'טרם בוצע גיבוי';}
 // ☁️ שחזור מגיבויי-ענן אוטומטיים (/backups). למנהל בלבד.
@@ -5250,6 +5265,10 @@ function showCloudBackups(){
   }).catch(function(){ el.innerHTML='<div style="font-size:12.5px;color:#A32D2D">שגיאת טעינה — ודא/י שחוק /backups פורסם ב-Firebase.</div>'; });
 }
 function restoreCloudBackup(id){
+  // V2 GUARD (audit 2026-07-15): in v2 this would DB[k]=backup[k] then saveDB()→diffToOps, i.e.
+  // a MASS typed-op overwrite of live server data from a stale v1-era backup. Disabled — restore
+  // is a controlled, reversible REST repair lane, never a one-click client bulk-replace.
+  if (typeof USE_V2!=='undefined' && USE_V2){ alert('שחזור-מגיבוי דרך הממשק מושבת בגרסת-השרת (הוא היה מבצע כתיבה-המונית של נתונים ישנים מעל החיים).\n\nלשחזור מבוקר — פנה/י אליי; אבצע זאת בנתיב-תיקון מתועד והפיך.'); return; }
   if(currentRole!=='principal'){alert('שחזור מותר למנהל בלבד');return;}
   if(!confirm('לשחזר את המערכת לנקודת-גיבוי זו?\n\nהנתונים הנוכחיים יוחלפו בתוכן הגיבוי.\n(המצב הנוכחי מגובה אוטומטית לפני השחזור — ניתן לחזור אליו.)'))return;
   fbDB.ref(FB_PATH+'/backups/'+id).once('value').then(function(s){
