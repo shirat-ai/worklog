@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260715f"></script>
-  <script src="v2-integration.js?v=20260715f"></script>
+  <script src="shirat-v2-bundle.js?v=20260715g"></script>
+  <script src="v2-integration.js?v=20260715g"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -679,7 +679,7 @@ function _pushDirty(attempt){
 }
 let _writeRejectNoticeAt=0;
 // התראת-קונפליקט (מווסתת): מוצגת כשעריכה מקומית נזנחה לטובת מצב-השרת. שקוף למשתמש — לעולם לא אובדן שקט.
-function _notifyConflict(){ var now=Date.now(); if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ המסך רוענן עם עדכון ממשתמש אחר. כל מה שכבר נשמר — בטוח בענן ולא אבד.\nאם הזנת משהו בשניות האחרונות, הצץ/י שהוא מופיע (ואם לא — פשוט שמור/י שוב).'); }catch(e){} } }
+function _notifyConflict(){ var now=Date.now(); if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ הרישום סונכרן מחדש עם השרת (עריכה מהירה מאוד או עדכון ממכשיר אחר). כל מה שנשמר — בטוח בענן ולא אבד.\nאם עדכנת משהו כרגע — הצץ/י שהוא מופיע, ואם לא — שמור/י שוב.'); }catch(e){} } }
 function _onWriteRejected(err){
   const info=((err&&err.code)||'')+' '+((err&&err.message)||'');
   console.warn('Firebase write rejected — re-syncing:', info);
@@ -690,7 +690,7 @@ function _onWriteRejected(err){
     _rerenderCurrentPage();
   }).catch(()=>{});
   const now=Date.now();
-  if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ המסך רוענן עם עדכון ממשתמש אחר. כל מה שכבר נשמר — בטוח בענן ולא אבד.\nאם הזנת משהו בשניות האחרונות, הצץ/י שהוא מופיע (ואם לא — פשוט שמור/י שוב).'); }catch(e){} }
+  if(now-_writeRejectNoticeAt>4000){ _writeRejectNoticeAt=now; try{ alert('ℹ️ הרישום סונכרן מחדש עם השרת (עריכה מהירה מאוד או עדכון ממכשיר אחר). כל מה שנשמר — בטוח בענן ולא אבד.\nאם עדכנת משהו כרגע — הצץ/י שהוא מופיע, ואם לא — שמור/י שוב.'); }catch(e){} }
 }
 function _rerenderCurrentPage(){
   if(!currentRole)return;
@@ -876,7 +876,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260746;
+const APP_VERSION = 20260747;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
