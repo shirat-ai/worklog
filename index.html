@@ -112,8 +112,8 @@ tr.drag-over td{border-top:2px solid #10717E}
   <!-- ?v= cache-buster: index.html is no-cache, so bumping this string forces every client
        to fetch the matching bundle immediately (the bundle itself has a 1h CDN cache). BUMP
        ON EVERY bundle/integration change. -->
-  <script src="shirat-v2-bundle.js?v=20260715g"></script>
-  <script src="v2-integration.js?v=20260715g"></script>
+  <script src="shirat-v2-bundle.js?v=20260715h"></script>
+  <script src="v2-integration.js?v=20260715h"></script>
 </head>
 
   <!-- Firebase loading overlay -->
@@ -876,7 +876,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260747;
+const APP_VERSION = 20260748;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
