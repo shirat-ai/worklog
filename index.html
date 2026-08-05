@@ -879,7 +879,7 @@ function _showIntegrityAlert(drops){
   }catch(e){}
 }
 // גרסת-אפליקציה: טאב פתוח על גרסה ישנה יטען מחדש אוטומטית כשמתפרסמת גרסה חדשה. bump בכל deploy.
-const APP_VERSION = 20260751;
+const APP_VERSION = 20260752;
 function _checkAppVersion(remote){
   const v=parseInt(remote)||0;
   if(v>APP_VERSION){
@@ -4762,18 +4762,29 @@ function renderPrivate(){
 function overrideStudentQuota(id,val){const s=DB.students.find(x=>x.id===id);if(!s)return;s.usedOverride=parseFloat(val)||null;saveDB();renderPrivate();}
 // "סיים/ה" — ארכוב (לא מחיקה): מוסר מהמכסות אך נשמר לדוחות (שם+שיעורים נשמרים)
 function delStudentFromQuota(id){const s=DB.students.find(x=>x.id===id);if(!s)return;if(!confirm('לסמן את '+s.name+' כתלמיד/ה שסיים/ה? יוסר/תוסר מרשימת המכסות, אך יישאר/תישאר בדוחות עם כל היסטוריית השיעורים.'))return;s.finished=true;saveDB();renderPrivate();}
-function reinstateStudent(id){const s=DB.students.find(x=>x.id===id);if(!s)return;delete s.finished;saveDB();renderPrivate();}
+function reinstateStudent(id){const s=DB.students.find(x=>x.id===id);if(!s)return;delete s.finished;saveDB();renderPrivate();if(document.getElementById('_arch-ov')){const fin=DB.students.filter(x=>x.finished);const known=new Set(DB.students.map(x=>x.id));const orph=[...new Set((DB.privateLessons||[]).map(pl=>pl.studentId))].filter(x=>x&&!known.has(x));const o=document.getElementById('_arch-ov');if(o)o.remove();if(fin.length||orph.length)showArchiveModal();}}
 // מקטע "תלמידים שסיימו" (מסומנים finished + יתומים שנמחקו בעבר) — לחיצים לדוח
 function _finishedStudentsHtml(){
   const fin=DB.students.filter(s=>s.finished);
   const known=new Set(DB.students.map(s=>s.id));
   const orphans=[...new Set((DB.privateLessons||[]).map(pl=>pl.studentId))].filter(id=>id&&!known.has(id));
   if(!fin.length&&!orphans.length)return '';
-  const chip=(id,label,extra)=>`<span style="font-size:12.5px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:12px;padding:2px 10px;cursor:pointer" onclick="showStudentLessonReport('${escH(id)}')" title="הצג דוח שיעורי כלי">${label}${extra||''}</span>`;
-  return `<div style="margin-top:12px;padding-top:8px;border-top:0.5px solid var(--color-border-tertiary)"><div style="font-size:12.5px;font-weight:600;color:var(--color-text-secondary);margin-bottom:5px">✔️ תלמידים שסיימו (${fin.length+orphans.length}) — לחץ/י על השם לדוח</div><div style="display:flex;flex-wrap:wrap;gap:6px">`
-    + fin.map(s=>chip(s.id,escH(s.name),` <button onclick="event.stopPropagation();reinstateStudent('${escH(s.id)}')" title="החזר למכסות" style="background:none;border:none;cursor:pointer;color:#10717E;font-size:12.5px;padding:0">↩</button>`)).join('')
-    + orphans.map(id=>chip(id,'תלמיד/ה שנמחק/ה')).join('')
-    + '</div></div>';
+  return `<div style="margin-top:12px;padding-top:8px;border-top:0.5px solid var(--color-border-tertiary)"><button class="btn btn-sm" onclick="showArchiveModal()" style="font-size:13px;font-weight:500">🗄 ארכיון — תלמידים שסיימו (${fin.length+orphans.length})</button></div>`;
+}
+// ארכיון תלמידים שסיימו — כפתור שפותח חלון עם רשימת השמות (לחיצה=דוח שיעורים, ↩=החזרה למכסות)
+function showArchiveModal(){
+  const ex=document.getElementById('_arch-ov');if(ex)ex.remove();
+  const fin=DB.students.filter(s=>s.finished);
+  const known=new Set(DB.students.map(s=>s.id));
+  const orphans=[...new Set((DB.privateLessons||[]).map(pl=>pl.studentId))].filter(id=>id&&!known.has(id));
+  if(!fin.length&&!orphans.length){alert('הארכיון ריק — אין תלמידים שסיימו.');return;}
+  const row=(id,name,orphan)=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 4px;border-bottom:0.5px solid var(--color-border-tertiary)"><span style="font-size:14px;cursor:pointer;color:#10717E;text-decoration:underline" onclick="showStudentLessonReport('${escH(id)}')" title="הצג דוח שיעורי כלי — תאריכי כל השיעורים">${escH(name)}</span>`+(orphan?'<span style="font-size:12px;color:var(--color-text-tertiary)">נמחק/ה</span>':`<button onclick="reinstateStudent('${escH(id)}')" title="החזר לרשימת המכסות" style="background:none;border:0.5px solid var(--color-border-secondary);border-radius:6px;padding:3px 10px;cursor:pointer;color:#10717E;font-size:12.5px">↩ החזר למכסות</button>`)+`</div>`;
+  const body=fin.map(s=>row(s.id,s.name,false)).join('')+orphans.map(id=>row(id,'תלמיד/ה שנמחק/ה',true)).join('');
+  const ov=document.createElement('div');ov.id='_arch-ov';
+  ov.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.innerHTML=`<div style="background:var(--color-background-primary);border-radius:12px;max-width:460px;width:100%;max-height:80vh;display:flex;flex-direction:column;overflow:hidden"><div style="display:flex;justify-content:space-between;align-items:center;padding:13px 18px;border-bottom:0.5px solid var(--color-border-secondary)"><div style="font-size:15px;font-weight:600;color:var(--color-text-primary)">🗄 ארכיון — תלמידים שסיימו (${fin.length+orphans.length})</div><button onclick="var o=document.getElementById('_arch-ov');if(o)o.remove()" style="font-size:20px;background:none;border:none;cursor:pointer;color:var(--color-text-secondary);line-height:1">✕</button></div><div style="overflow-y:auto;padding:8px 18px 14px">${body}</div></div>`;
+  ov.addEventListener('click',e=>{if(e.target===ov)ov.remove();});
+  document.body.appendChild(ov);
 }
 // מודל דוח גנרי עם ייצוא Excel
 function _reportModal(titleHtml,bodyHtml,xlsRows,xlsName){
